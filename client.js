@@ -10,6 +10,8 @@ const WebSocket = require('ws');
 const openpgp = require('openpgp');
 
 const protocolVersion = 'v1';
+const PROMPT = '╰─> ';
+const INPUT_DIVIDER = '────────────────────────────────────────';
 const color = {
   reset: '\x1b[0m',
   cyan: '\x1b[36m',
@@ -69,7 +71,7 @@ async function bootstrap() {
   if (!sessionId) {
     if (autoGenerate) {
       sessionId = generateSessionId();
-      console.log(`${label('generated session_id')}: ${val(sessionId)}`);
+      printLine(`${label('generated session_id')}: ${val(sessionId)}`);
     } else {
       sessionId = await promptWithDefault(`${label('session_id')} (type "gen" to generate)`, '', true, true);
     }
@@ -77,7 +79,7 @@ async function bootstrap() {
   if (!args.passphrase) {
     if (autoGenerate) {
       passphrase = generatePassphrase();
-      console.log(`${label('generated passphrase')}: ${val(passphrase)}`);
+      printLine(`${label('generated passphrase')}: ${val(passphrase)}`);
     } else {
       passphrase = await promptWithDefault(`${label('passphrase')} (optional, type "gen" to create one)`, '', false, true);
     }
@@ -96,9 +98,9 @@ async function bootstrap() {
     try {
       registerKeyArmored = fs.readFileSync(registerPath, 'utf8');
       publicKeyId = publicKeyId || await deriveKeyId(registerKeyArmored);
-      console.log(`${label('register pubkey')} from ${registerPath}, key id ${val(publicKeyId)}`);
+      printLine(`${label('register pubkey')} from ${registerPath}, key id ${val(publicKeyId)}`);
     } catch (e) {
-      console.log(warn(`could not read pubkey at ${registerPath}: ${e.message}`));
+      printLine(warn(`could not read pubkey at ${registerPath}: ${e.message}`));
     }
   }
 
@@ -145,17 +147,20 @@ function connect() {
   rl.on('line', (line) => {
     if (!authed || !joined) {
       printLine(warn('not logged in / joined yet'));
+      renderPrompt();
       return;
     }
     if (!groupKey) {
       printLine(warn('group key not ready, wait for peers to rekey'));
+      renderPrompt();
       return;
     }
     sendEncrypted(line.trim());
+    renderPrompt();
   });
 
   process.on('SIGINT', () => {
-    console.log('\n' + warn('exiting'));
+    printLine('\n' + warn('exiting'));
     shutdownRequested = true;
     if (ws) ws.close();
     rl.close();
@@ -240,12 +245,12 @@ function promptWithDefault(promptLabel, defaultValue, required, allowGenerate = 
       const trimmed = answer.trim();
       if (allowGenerate && trimmed.toLowerCase() === 'gen') {
         const generated = promptLabel.toLowerCase().includes('session') ? generateSessionId() : generatePassphrase();
-        console.log(`${promptLabel} ${val(generated)}`);
+        printLine(`${promptLabel} ${val(generated)}`);
         return resolve(generated);
       }
       const resolved = trimmed || defaultValue;
       if (required && !resolved) {
-        console.log(warn('value required'));
+        printLine(warn('value required'));
         resolve(promptWithDefault(promptLabel, defaultValue, required, allowGenerate));
       } else {
         resolve(resolved);
@@ -443,16 +448,31 @@ function renderChatUi() {
   printLine(pad(`user: ${username}  nick: ${nickname || username}`));
   printLine(pad(`server: ${serverUrl}`));
   printLine(pad('type to send; CTRL+C to exit'));
-  printLine('╰─>');
-  rl.setPrompt('╰─> ');
-  rl.prompt();
+  printLine(INPUT_DIVIDER);
+  rl.setPrompt(PROMPT);
+  renderPrompt();
 }
 
 function printLine(text) {
-  console.log(text);
+  const line = rl.line || '';
+  const cursor = rl.cursor || 0;
+  readline.clearLine(process.stdout, 0);
+  readline.cursorTo(process.stdout, 0);
+  process.stdout.write(`${text}\n`);
   if (joined) {
-    rl.prompt();
+    renderPrompt(line, cursor);
   }
+}
+
+function renderPrompt(line = rl.line || '', cursor = rl.cursor || 0) {
+  readline.clearLine(process.stdout, 0);
+  readline.cursorTo(process.stdout, 0);
+  process.stdout.write(`${INPUT_DIVIDER}\n${PROMPT}`);
+  rl.line = line;
+  rl.cursor = cursor;
+  rl.prompt(true);
+  rl.write('');
+  readline.cursorTo(process.stdout, PROMPT.length + cursor);
 }
 function normalizeServer(url) {
   if (!url) return url;
