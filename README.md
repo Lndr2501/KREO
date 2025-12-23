@@ -18,6 +18,15 @@ Requirements: Docker (for relay) and a PGP keypair (private key stays local).
    # health: curl http://localhost:6969/health
    # logs:   docker logs -f kreo-relay
    ```
+   **Linux host (Docker) checklist:**
+   - Sicherstellen, dass Docker läuft: `sudo systemctl status docker` (falls nicht: `sudo systemctl start docker`).
+   - Optional: aktuelles Image ziehen (falls aus Registry): `docker pull kreo-relay` (hier bauen wir lokal).
+   - Build aus Repo-Root: `docker build -t kreo-relay .`
+   - Starten: `docker run -p 6969:6969 --name kreo-relay --rm kreo-relay`
+   - Health prüfen: `curl http://localhost:6969/health`
+   - Logs verfolgen: `docker logs -f kreo-relay`
+   - Firewall öffnen (Beispiel ufw): `sudo ufw allow 6969/tcp`
+   - Öffentlich erreichbar machen: Stelle sicher, dass dein Router/NAT Port 6969 auf die Linux-Host-IP forwarded (siehe unten für FritzBox/pfSense).
 
 2) Export your PGP public key (ASCII), note its fingerprint. Example: `C:\Users\You\my_pub.asc`.
 

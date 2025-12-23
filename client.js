@@ -62,6 +62,7 @@ async function bootstrap() {
   if (!serverUrl) {
     serverUrl = await promptWithDefault(label('server'), 'ws://localhost:6969', false);
   }
+  serverUrl = normalizeServer(serverUrl);
   if (!username) {
     username = await promptWithDefault(label('username'), '', true);
   }
@@ -112,7 +113,7 @@ function connect() {
   ws = new WebSocket(serverUrl);
 
   ws.on('open', async () => {
-    console.log(`${label('connected')} ${val(serverUrl)}, user ${val(username)}, session ${val(sessionId)}`);
+    printLine(`${label('connected')} ${val(serverUrl)}, user ${val(username)}, session ${val(sessionId)}`);
     // Optional register before login.
     if (registerKeyArmored) {
       safeSend({ type: 'register', username, key_id: publicKeyId, public_key: registerKeyArmored });
@@ -132,28 +133,25 @@ function connect() {
   });
 
   ws.on('close', () => {
-    console.log(warn('disconnected from relay'));
+    printLine(warn('disconnected from relay'));
     if (shutdownRequested) process.exit(0);
     holdForExit();
   });
 
   ws.on('error', (e) => {
-    console.error(err('relay error'), e.message);
+    printLine(`${err('relay error')} ${e.message}`);
   });
 
   rl.on('line', (line) => {
     if (!authed || !joined) {
-      console.log(warn('not logged in / joined yet'));
-      rl.prompt();
+      printLine(warn('not logged in / joined yet'));
       return;
     }
     if (!groupKey) {
-      console.log(warn('group key not ready, wait for peers to rekey'));
-      rl.prompt();
+      printLine(warn('group key not ready, wait for peers to rekey'));
       return;
     }
     sendEncrypted(line.trim());
-    rl.prompt();
   });
 
   process.on('SIGINT', () => {
@@ -167,33 +165,32 @@ function connect() {
 async function handleMessage(msg) {
   switch (msg.type) {
     case 'register-ok':
-      console.log(val(`public key registered for ${msg.username}`));
+      printLine(val(`public key registered for ${msg.username}`));
       safeSend({ type: 'login-init', username, key_id: publicKeyId });
       break;
     case 'error':
-      console.log(err(msg.message || 'server error'));
+      printLine(err(msg.message || 'server error'));
       break;
     case 'login-challenge':
       await handleLoginChallenge(msg);
       break;
     case 'login-success':
       authed = true;
-      console.log(val(`login success for ${msg.username}`));
+      printLine(val(`login success for ${msg.username}`));
       safeSend({ type: 'join', session_id: sessionId });
       break;
     case 'joined':
       joined = true;
-      console.log(val(`joined session ${msg.session_id}`));
-      rl.setPrompt('> ');
+      printLine(val(`joined session ${msg.session_id}`));
+      renderChatUi();
       startRekey('login');
-      rl.prompt();
       break;
     case 'peer-joined':
-      console.log(muted(`peer joined ${msg.session_id || ''}`));
+      printLine(muted(`peer joined ${msg.session_id || ''}`));
       startRekey('peer-joined');
       break;
     case 'peer-left':
-      console.log(warn('peer left, rekeying'));
+      printLine(warn('peer left, rekeying'));
       startRekey('peer-left');
       break;
     case 'announce':
@@ -209,9 +206,9 @@ async function handleMessage(msg) {
 
 async function handleLoginChallenge(msg) {
   pendingChallengeId = msg.challenge_id;
-  console.log(label('PGP challenge received'));
-  console.log(muted('Decrypt the following armored message with your private key and paste the plaintext nonce below:'));
-  console.log(msg.armored);
+  printLine(label('PGP challenge received'));
+  printLine(muted('Decrypt the following armored message with your private key and paste the plaintext nonce below:'));
+  printLine(msg.armored);
   const response = await promptWithDefault(label('decrypted challenge (paste exact plaintext)'), '', true);
   safeSend({ type: 'login-response', challenge_id: pendingChallengeId, response });
 }
@@ -293,7 +290,7 @@ function startRekey(reason, targetEpoch) {
   identity = generateIdentity();
   noncePrefix = crypto.randomBytes(4);
   messageCounter = 0;
-  console.log(`${label('[rekey]')} ${reason} -> epoch ${val(currentEpoch)}, sender ${val(identity.senderId)}`);
+  printLine(`${label('[rekey]')} ${reason} -> epoch ${val(currentEpoch)}, sender ${val(identity.senderId)}`);
   sendAnnounce(reason);
 }
 
@@ -332,7 +329,7 @@ function handleAnnounce(msg) {
 }
 
 function handlePeerLeft() {
-  console.log(warn('peer left, rekeying'));
+  printLine(warn('peer left, rekeying'));
   startRekey('peer-left');
 }
 
@@ -355,7 +352,7 @@ function deriveGroupKey() {
   messageCounter = 0;
 
   const safetyCode = crypto.createHash('sha256').update(groupKey).digest('hex').slice(0, 16);
-  console.log(`${label('[key]')} epoch ${val(currentEpoch)} ready. safety code ${val(safetyCode)}`);
+  printLine(`${label('[key]')} epoch ${val(currentEpoch)} ready. safety code ${val(safetyCode)}`);
 }
 
 function sendEncrypted(plaintext) {
@@ -390,12 +387,12 @@ function sendEncrypted(plaintext) {
 function handleCiphertext(msg) {
   if (!groupKey) return;
   if (msg.epoch !== currentEpoch) {
-    console.log(muted('received message for different epoch, ignoring'));
+    printLine(muted('received message for different epoch, ignoring'));
     return;
   }
   const peer = peers.get(msg.sender_id);
   if (!peer || peer.epoch !== currentEpoch) {
-    console.log(warn('unknown sender, request rekey'));
+    printLine(warn('unknown sender, request rekey'));
     return;
   }
 
@@ -410,9 +407,9 @@ function handleCiphertext(msg) {
     decipher.setAuthTag(tag);
     const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
     const displayLabel = peer.nickname ? `${msg.sender_id}|${peer.nickname}` : msg.sender_id;
-    console.log(`${displayLabel ? paint(color.magenta, displayLabel) : ''}${displayLabel ? ' ' : ''}${plaintext}`);
+    printLine(`${displayLabel ? paint(color.magenta, displayLabel) : ''}${displayLabel ? ' ' : ''}${plaintext}`);
   } catch {
-    console.log(warn('failed to decrypt/authenticate message, rekey recommended'));
+    printLine(warn('failed to decrypt/authenticate message, rekey recommended'));
   }
 }
 
@@ -435,6 +432,30 @@ function safeSend(obj) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(obj));
   } else {
-    console.log(err('not connected'));
+    printLine(err('not connected'));
   }
+}
+
+function renderChatUi() {
+  const pad = (text = '') => `│ ${text}`;
+  const header = `╭──────────────── chat ${val(sessionId)} ────────────────`;
+  printLine(header);
+  printLine(pad(`user: ${username}  nick: ${nickname || username}`));
+  printLine(pad(`server: ${serverUrl}`));
+  printLine(pad('type to send; CTRL+C to exit'));
+  printLine('╰─>');
+  rl.setPrompt('╰─> ');
+  rl.prompt();
+}
+
+function printLine(text) {
+  console.log(text);
+  if (joined) {
+    rl.prompt();
+  }
+}
+function normalizeServer(url) {
+  if (!url) return url;
+  if (url.startsWith('ws://') || url.startsWith('wss://')) return url;
+  return `ws://${url}`;
 }
