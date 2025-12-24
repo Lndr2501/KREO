@@ -652,8 +652,7 @@ function printLine(text) {
     console.log(text);
     return;
   }
-  const line = rl.line || '';
-  const cursor = rl.cursor || 0;
+  const { line, cursor } = getInputState();
   redrawScreen(line, cursor);
 }
 
@@ -665,9 +664,9 @@ function renderPrompt(line = rl.line || '', cursor = rl.cursor || 0) {
 function redrawScreen(line = rl.line || '', cursor = rl.cursor || 0) {
   // Capture current input if not provided.
   if (arguments.length === 0) {
-    line = rl.line || '';
-    cursor = rl.cursor || 0;
+    ({ line, cursor } = getInputState());
   }
+  cursor = Math.min(Math.max(cursor, 0), line.length);
   const rows = process.stdout.rows || 30;
   const available = Math.max(0, rows - headerLines.length - 2);
   const start = Math.max(0, logBuffer.length - available);
@@ -677,11 +676,19 @@ function redrawScreen(line = rl.line || '', cursor = rl.cursor || 0) {
   for (const h of headerLines) process.stdout.write(`${h}\n`);
   for (const l of view) process.stdout.write(`${l}\n`);
   process.stdout.write(`${INPUT_DIVIDER}\n${PROMPT}`);
-  rl.line = line;
-  rl.cursor = cursor;
-  rl.write('');
+  // Rebuild input without duplicating internal buffer.
+  rl.line = '';
+  rl.cursor = 0;
   if (line) rl.write(line);
+  rl.cursor = cursor;
   readline.cursorTo(process.stdout, PROMPT.length + cursor);
+}
+
+function getInputState() {
+  const line = rl.line || '';
+  const cursor = rl.cursor ?? line.length;
+  const clamped = Math.min(Math.max(cursor, 0), line.length);
+  return { line, cursor: clamped };
 }
 function normalizeServer(url) {
   if (!url) return url;
