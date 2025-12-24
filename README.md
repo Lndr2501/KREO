@@ -11,6 +11,11 @@
 ## Quickstart
 Requirements: Docker (for relay) and a PGP keypair (private key stays local).
 
+Linux relay quick setup (copy/paste):
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lndr2501/KREO/main/scripts/setup-relays.sh -o setup-relays.sh && bash setup-relays.sh
+```
+
 1) Build and run relay (port 6969):
    ```bash
    docker build -t kreo-relay .

@@ -5,25 +5,6 @@ echo "KREO Relay Setup (Docker)"
 echo "This will generate a docker-compose.yml for multiple relay instances."
 echo
 
-read -r -p "Git repo URL [https://github.com/Lndr2501/KREO.git]: " REPO_URL
-REPO_URL="${REPO_URL:-https://github.com/Lndr2501/KREO.git}"
-
-read -r -p "Clone folder (default: ./KREO): " REPO_DIR
-REPO_DIR="${REPO_DIR:-./KREO}"
-
-if [[ ! -d "${REPO_DIR}" ]]; then
-  git clone "${REPO_URL}" "${REPO_DIR}"
-else
-  echo "Repo folder exists, pulling latest..."
-  git -C "${REPO_DIR}" pull
-fi
-
-read -r -p "Target folder for relays (will be created): " TARGET_DIR
-if [[ -z "${TARGET_DIR}" ]]; then
-  echo "Target folder is required."
-  exit 1
-fi
-
 DEFAULT_RANGE="6969-6969"
 read -r -p "Port range (start-end) [${DEFAULT_RANGE}]: " PORT_RANGE
 PORT_RANGE="${PORT_RANGE:-$DEFAULT_RANGE}"
@@ -37,23 +18,39 @@ if [[ "${START_PORT}" -lt 1 ]] || [[ "${END_PORT}" -gt 65535 ]] || [[ "${END_POR
   echo "Invalid port range values."
   exit 1
 fi
-RELAY_COUNT=$((END_PORT - START_PORT + 1))
 
-DEFAULT_PUBLIC_HOST="localhost"
-read -r -p "Default public hostname/IP (can override per relay) [${DEFAULT_PUBLIC_HOST}]: " DEFAULT_HOST
-DEFAULT_HOST="${DEFAULT_HOST:-$DEFAULT_PUBLIC_HOST}"
-
-read -r -p "Relay list URL (default: GitHub list) [press Enter]: " RELAY_SEEDS_URL
-if [[ -z "${RELAY_SEEDS_URL}" ]]; then
-  RELAY_SEEDS_URL="https://raw.githubusercontent.com/Lndr2501/KREO-Relays/refs/heads/main/relays.json"
+DEFAULT_COUNT="1"
+read -r -p "How many relays? [${DEFAULT_COUNT}]: " RELAY_COUNT
+RELAY_COUNT="${RELAY_COUNT:-$DEFAULT_COUNT}"
+if ! [[ "${RELAY_COUNT}" =~ ^[0-9]+$ ]] || [[ "${RELAY_COUNT}" -lt 1 ]]; then
+  echo "Invalid relay count."
+  exit 1
 fi
 
-read -r -p "Relay sample size (default 3) [press Enter]: " RELAY_SAMPLE_SIZE
-if [[ -z "${RELAY_SAMPLE_SIZE}" ]]; then
-  RELAY_SAMPLE_SIZE="3"
+RANGE_SIZE=$((END_PORT - START_PORT + 1))
+if [[ "${RELAY_COUNT}" -gt "${RANGE_SIZE}" ]]; then
+  echo "Relay count exceeds port range size (${RANGE_SIZE})."
+  exit 1
 fi
 
-mkdir -p "${TARGET_DIR}"
+DEFAULT_HOST_PATTERN="kreo{N}.domain"
+read -r -p "Host pattern (use {N}) [${DEFAULT_HOST_PATTERN}]: " HOST_PATTERN
+HOST_PATTERN="${HOST_PATTERN:-$DEFAULT_HOST_PATTERN}"
+
+TARGET_DIR="."
+REPO_URL="https://github.com/Lndr2501/KREO.git"
+REPO_DIR="${TARGET_DIR}/_repo"
+RELAY_SEEDS_URL="https://raw.githubusercontent.com/Lndr2501/KREO-Relays/refs/heads/main/relays.json"
+RELAY_SAMPLE_SIZE="3"
+
+mkdir -p "${REPO_DIR}"
+
+if [[ ! -d "${REPO_DIR}" ]]; then
+  git clone "${REPO_URL}" "${REPO_DIR}"
+else
+  echo "Repo folder exists, pulling latest..."
+  git -C "${REPO_DIR}" pull
+fi
 
 echo "Building relay image..."
 docker build -t kreo-relay "${REPO_DIR}"
@@ -66,8 +63,7 @@ EOF
 
 for i in $(seq 1 "${RELAY_COUNT}"); do
   PORT=$((START_PORT + i - 1))
-  read -r -p "Public host for relay ${i} (port ${PORT}) [${DEFAULT_HOST}]: " PUBLIC_HOST
-  PUBLIC_HOST="${PUBLIC_HOST:-$DEFAULT_HOST}"
+  PUBLIC_HOST="${HOST_PATTERN/\{N\}/${i}}"
   cat >> "${COMPOSE_FILE}" <<EOF
   kreo-relay-${i}:
     image: kreo-relay
@@ -88,8 +84,7 @@ Done. Compose file created at:
   ${COMPOSE_FILE}
 
 Next steps:
-  1) docker build -t kreo-relay .
-  2) cd "${TARGET_DIR}"
-  3) docker compose up -d
-  4) Open/forward ports ${START_PORT}..${END_PORT} to this host.
+  1) cd "${TARGET_DIR}"
+  2) docker compose up -d
+  3) Open/forward ports ${START_PORT}..${END_PORT} to this host.
 EOF
