@@ -81,12 +81,19 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 let ws = null;
 let shutdownRequested = false;
 let reconnectAttempts = 0;
+let totalReconnects = 0;
 let entryRelay = '';
 let connectedRelay = '';
 let uiActive = false;
 let headerLines = [];
 const logBuffer = [];
 const MAX_LOG_LINES = 200;
+const seenCipher = new Map();
+const MAX_SEEN = 500;
+let handlersBound = false;
+let showEncrypted = false;
+let lastServerVersion = '';
+let lastSafetyCode = '';
 
 bootstrap().catch((e) => {
   console.error(err('fatal error'), e.message);
@@ -150,6 +157,7 @@ async function bootstrap() {
     publicKeyId = await promptWithDefault(label('public key id / fingerprint'), '', true);
   }
 
+  bindHandlers();
   connect();
 }
 
@@ -161,6 +169,7 @@ function connect() {
     connectedRelay = serverUrl;
     if (!entryRelay) entryRelay = serverUrl;
     printLine(`${label('connected')} ${val(serverUrl)}, user ${val(username)}, session ${val(sessionId)}`);
+    if (uiActive) updateHeader();
     // Optional register before login.
     if (registerKeyArmored) {
       safeSend({ type: 'register', username, key_id: publicKeyId, public_key: registerKeyArmored });
@@ -189,6 +198,13 @@ function connect() {
     printLine(`${err('relay error')} ${e.message}`);
   });
 
+  // input handlers are bound once in bindHandlers()
+}
+
+function bindHandlers() {
+  if (handlersBound) return;
+  handlersBound = true;
+
   rl.on('line', (line) => {
     if (!authed || !joined) {
       printLine(warn('not logged in / joined yet'));
@@ -202,6 +218,11 @@ function connect() {
     }
     const trimmed = line.trim();
     if (!trimmed) {
+      renderPrompt();
+      return;
+    }
+    if (trimmed.startsWith('/')) {
+      handleCommand(trimmed);
       renderPrompt();
       return;
     }
@@ -234,8 +255,11 @@ async function handleMessage(msg) {
     case 'login-success':
       authed = true;
       printLine(val(`login success for ${msg.username}`));
-      if (msg.server_version && msg.server_version !== clientVersion) {
-        printLine(warn(`server version ${msg.server_version} differs from client ${clientVersion}`));
+      if (msg.server_version) {
+        lastServerVersion = msg.server_version;
+      }
+      if (lastServerVersion && lastServerVersion !== clientVersion) {
+        printLine(warn(`server version ${lastServerVersion} differs from client ${clientVersion}`));
       }
       safeSend({ type: 'join', session_id: sessionId });
       break;
@@ -418,6 +442,7 @@ function deriveGroupKey() {
   messageCounter = 0;
 
   const safetyCode = crypto.createHash('sha256').update(groupKey).digest('hex').slice(0, 16);
+  lastSafetyCode = safetyCode;
   printLine(`${label('[key]')} epoch ${val(currentEpoch)} ready. safety code ${val(safetyCode)}`);
 }
 
@@ -438,6 +463,7 @@ function sendEncrypted(plaintext) {
 
   const frame = {
     type: 'ciphertext',
+    msg_id: crypto.randomUUID(),
     session_id: sessionId,
     sender_id: identity.senderId,
     epoch: currentEpoch,
@@ -448,6 +474,10 @@ function sendEncrypted(plaintext) {
   };
 
   safeSend(frame);
+  markSeen(frame.msg_id, frame.sender_id, frame.epoch, frame.counter);
+  if (showEncrypted) {
+    printLine(muted(`[encrypted] ${frame.ciphertext}`));
+  }
 }
 
 function handleCiphertext(msg) {
@@ -461,6 +491,7 @@ function handleCiphertext(msg) {
     printLine(warn('unknown sender, request rekey'));
     return;
   }
+  if (isSeen(msg)) return;
 
   try {
     const nonce = Buffer.from(msg.nonce, 'base64');
@@ -473,9 +504,74 @@ function handleCiphertext(msg) {
     decipher.setAuthTag(tag);
     const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
     const displayLabel = peer.nickname ? `${msg.sender_id}|${peer.nickname}` : msg.sender_id;
+    if (showEncrypted) {
+      printLine(muted(`[encrypted] ${msg.ciphertext}`));
+    }
     printLine(`${displayLabel ? paint(color.magenta, displayLabel) : ''}${displayLabel ? ' ' : ''}${plaintext}`);
   } catch {
     printLine(warn('failed to decrypt/authenticate message, rekey recommended'));
+  }
+}
+
+function handleCommand(input) {
+  const parts = input.split(/\s+/);
+  const cmd = parts[0].toLowerCase();
+  if (cmd === '/relay') {
+    printLine(muted(`relay ${connectedRelay || serverUrl} | entry ${entryRelay || serverUrl}`));
+    return;
+  }
+  if (cmd === '/showencrypted') {
+    const arg = (parts[1] || '').toLowerCase();
+    if (arg === 'on') showEncrypted = true;
+    if (arg === 'off') showEncrypted = false;
+    printLine(muted(`showEncrypted ${showEncrypted ? 'on' : 'off'}`));
+    return;
+  }
+  if (cmd === '/session') {
+    printLine(muted(`session ${sessionId || '-'} | epoch ${currentEpoch}`));
+    return;
+  }
+  if (cmd === '/who') {
+    const list = [...peers.entries()]
+      .filter(([, peer]) => peer.epoch === currentEpoch)
+      .map(([id, peer]) => (peer.nickname ? `${id}|${peer.nickname}` : id));
+    printLine(muted(`peers ${list.length}: ${list.join(', ') || '-'}`));
+    return;
+  }
+  if (cmd === '/rekey') {
+    startRekey('manual');
+    return;
+  }
+  if (cmd === '/safety') {
+    printLine(muted(`safety ${lastSafetyCode || '-'}`));
+    return;
+  }
+  if (cmd === '/version') {
+    printLine(muted(`client ${clientVersion} | server ${lastServerVersion || '-'}`));
+    return;
+  }
+  if (cmd === '/help') {
+    printLine(muted('/relay | /session | /who | /rekey | /safety | /version | /showencrypted on|off | /help'));
+    return;
+  }
+  printLine(muted('unknown command. try /help'));
+}
+
+function isSeen(msg) {
+  const key = msg.msg_id || `${msg.sender_id}|${msg.epoch}|${msg.counter}`;
+  if (seenCipher.has(key)) return true;
+  markSeen(msg.msg_id, msg.sender_id, msg.epoch, msg.counter);
+  return false;
+}
+
+function markSeen(msgId, senderId, epoch, counter) {
+  const key = msgId || `${senderId}|${epoch}|${counter}`;
+  seenCipher.set(key, Date.now());
+  if (seenCipher.size > MAX_SEEN) {
+    for (const [k] of seenCipher) {
+      seenCipher.delete(k);
+      if (seenCipher.size <= MAX_SEEN) break;
+    }
   }
 }
 
@@ -504,6 +600,8 @@ function safeSend(obj) {
 
 function scheduleReconnect() {
   reconnectAttempts += 1;
+  totalReconnects += 1;
+  if (uiActive) updateHeader();
   const delay = Math.min(15000, 1000 * reconnectAttempts);
   printLine(muted(`reconnecting in ${Math.floor(delay / 1000)}s...`));
   setTimeout(async () => {
@@ -519,17 +617,22 @@ function scheduleReconnect() {
 }
 
 function renderChatUi() {
+  updateHeader();
+  uiActive = true;
+  rl.setPrompt(PROMPT);
+  redrawScreen();
+}
+
+function updateHeader() {
   const pad = (text = '') => `│ ${text}`;
-  const statusLine = `user ${val(username)} | relay ${val(connectedRelay || serverUrl)} | entry ${val(entryRelay || serverUrl)} | reconnects ${val(reconnectAttempts)}`;
+  const statusLine = `user ${val(username)} | relay ${val(connectedRelay || serverUrl)} | entry ${val(entryRelay || serverUrl)} | reconnects ${val(totalReconnects)}`;
   headerLines = [
     `╭─ ${statusLine}`,
     pad(`user: ${username}  nick: ${nickname || username}`),
     pad(`server: ${serverUrl}`),
     pad('type to send; CTRL+C to exit'),
   ];
-  uiActive = true;
-  rl.setPrompt(PROMPT);
-  redrawScreen();
+  if (uiActive) redrawScreen();
 }
 
 function printLine(text) {

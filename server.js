@@ -12,6 +12,8 @@ const PORT = process.env.PORT || 6969;
 const HEALTH_PATH = '/health';
 const SERVER_VERSION = '1.0.0';
 const MIN_CLIENT_VERSION = process.env.MIN_CLIENT_VERSION || '';
+const DEBUG_FRAMES = process.env.DEBUG_FRAMES === '1' || process.env.DEBUG_FRAMES === 'true';
+const DEBUG_CIPHERTEXT = process.env.DEBUG_CIPHERTEXT === '1' || process.env.DEBUG_CIPHERTEXT === 'true';
 const RELAY_URL = process.env.RELAY_URL || '';
 const RELAY_PEERS = (process.env.RELAY_PEERS || '')
   .split(',')
@@ -69,6 +71,29 @@ const safeSend = (ws, obj) => {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(obj));
   }
+};
+
+const debugFrame = (payload) => {
+  if (!DEBUG_FRAMES) return;
+  if (payload.type === 'ciphertext' && DEBUG_CIPHERTEXT) {
+    console.log('[debug] ciphertext', JSON.stringify({
+      msg_id: payload.msg_id,
+      session_id: payload.session_id,
+      sender_id: payload.sender_id,
+      epoch: payload.epoch,
+      counter: payload.counter,
+      nonce: payload.nonce,
+      tag: payload.tag,
+      ciphertext: payload.ciphertext,
+    }));
+    return;
+  }
+  console.log('[debug]', payload.type, {
+    session_id: payload.session_id,
+    sender_id: payload.sender_id,
+    epoch: payload.epoch,
+    counter: payload.counter,
+  });
 };
 
 const compareVersions = (a, b) => {
@@ -306,6 +331,7 @@ wss.on('connection', (ws, req) => {
           if (!sessionId || sessionId !== ws.sessionId) return;
           const peers = sessions.get(sessionId);
           if (!peers) return;
+          debugFrame(payload);
           console.log(`relay ${type} from ${ws.authedUser} in session ${sessionId}`);
           for (const peer of peers) {
             if (peer !== ws && peer.readyState === WebSocket.OPEN) {

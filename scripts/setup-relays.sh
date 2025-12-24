@@ -76,6 +76,7 @@ for i in $(seq 1 "${RELAY_COUNT}"); do
   cat >> "${COMPOSE_FILE}" <<EOF
   kreo-relay-${i}:
     image: kreo-relay
+    container_name: kreo-relay-${i}
     restart: unless-stopped
     ports:
       - "${PORT}:6969"
