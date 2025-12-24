@@ -10,6 +10,14 @@ const openpgp = require('openpgp');
 
 const PORT = process.env.PORT || 6969;
 const HEALTH_PATH = '/health';
+const SERVER_VERSION = '1.0.0';
+const MIN_CLIENT_VERSION = process.env.MIN_CLIENT_VERSION || '';
+const RELAY_URL = process.env.RELAY_URL || '';
+const RELAY_PEERS = (process.env.RELAY_PEERS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+const RELAY_ID = crypto.randomUUID();
 
 // username -> { keyId, publicKeyArmored, publicKeyObj }
 const users = new Map();
@@ -17,11 +25,31 @@ const users = new Map();
 const challenges = new Map();
 // sessionId -> Set<WebSocket>
 const sessions = new Map();
+// relayId -> { id, url, ws, lastSeen }
+const relays = new Map();
+// url -> lastSeen
+const knownRelayUrls = new Map();
+// msgId -> timestamp (for loop prevention)
+const seenMessages = new Map();
 
 const server = http.createServer((req, res) => {
   if (req.url === HEALTH_PATH) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', users: users.size }));
+    res.end(JSON.stringify({
+      status: 'ok',
+      users: users.size,
+      relay_id: RELAY_ID,
+      relay_url: RELAY_URL,
+      known_relays: knownRelayUrls.size + (RELAY_URL ? 1 : 0),
+    }));
+    return;
+  }
+  if (req.url === '/directory') {
+    const urls = new Set();
+    if (RELAY_URL) urls.add(RELAY_URL);
+    for (const url of knownRelayUrls.keys()) urls.add(url);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ relays: [...urls] }));
     return;
   }
   res.writeHead(404);
@@ -37,6 +65,53 @@ const heartbeat = (ws) => {
 const safeSend = (ws, obj) => {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(obj));
+  }
+};
+
+const compareVersions = (a, b) => {
+  const pa = String(a).split('.').map((n) => parseInt(n, 10));
+  const pb = String(b).split('.').map((n) => parseInt(n, 10));
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i += 1) {
+    const av = Number.isFinite(pa[i]) ? pa[i] : 0;
+    const bv = Number.isFinite(pb[i]) ? pb[i] : 0;
+    if (av > bv) return 1;
+    if (av < bv) return -1;
+  }
+  return 0;
+};
+
+const trackRelay = (relayId, url, ws) => {
+  if (!relayId) return;
+  if (url) knownRelayUrls.set(url, Date.now());
+  relays.set(relayId, { id: relayId, url, ws, lastSeen: Date.now() });
+};
+
+const rememberRelayUrl = (url) => {
+  if (!url || url === RELAY_URL) return;
+  knownRelayUrls.set(url, Date.now());
+};
+
+const markSeen = (msgId) => {
+  if (!msgId) return false;
+  if (seenMessages.has(msgId)) return true;
+  seenMessages.set(msgId, Date.now());
+  return false;
+};
+
+const forwardToRelays = (payload, originRelayId) => {
+  const msgId = crypto.randomUUID();
+  seenMessages.set(msgId, Date.now());
+  const frame = {
+    type: 'relay-forward',
+    msg_id: msgId,
+    origin: originRelayId || RELAY_ID,
+    payload,
+  };
+  for (const relay of relays.values()) {
+    if (relay.ws && relay.ws.readyState === WebSocket.OPEN) {
+      safeSend(relay.ws, frame);
+    }
   }
 };
 
@@ -60,6 +135,7 @@ wss.on('connection', (ws, req) => {
   ws.authedUser = null;
   ws.sessionId = null;
   ws.challengeId = null;
+  ws.isRelay = false;
   const clientAddr = req.socket.remoteAddress;
   console.log(`connection from ${clientAddr}`);
 
@@ -86,13 +162,25 @@ wss.on('connection', (ws, req) => {
           }
           users.set(username, { keyId: keyId || null, publicKeyArmored, publicKeyObj: null });
           console.log(`registered user ${username} key ${keyId || 'n/a'}`);
+          forwardToRelays({ type: 'register-sync', username, public_key: publicKeyArmored, key_id: keyId || null });
           return safeSend(ws, { type: 'register-ok', username });
         }
+        case 'register-sync': {
+          if (!ws.isRelay) return;
+          const { username, public_key: publicKeyArmored, key_id: keyId } = payload;
+          if (!username || !publicKeyArmored) return;
+          users.set(username, { keyId: keyId || null, publicKeyArmored, publicKeyObj: null });
+          return;
+        }
         case 'login-init': {
-          const { username } = payload;
+          const { username, client_version: clientVersion } = payload;
           if (!username || !users.has(username)) {
             console.warn(`login-init unknown user=${username} from ${clientAddr}`);
             return safeSend(ws, { type: 'error', message: 'unknown user' });
+          }
+          if (MIN_CLIENT_VERSION && compareVersions(clientVersion || '0.0.0', MIN_CLIENT_VERSION) < 0) {
+            console.warn(`login-init rejected client ${clientVersion} < ${MIN_CLIENT_VERSION}`);
+            return safeSend(ws, { type: 'error', message: 'client version not allowed' });
           }
           const nonce = crypto.randomBytes(24).toString('base64');
           const challengeId = crypto.randomUUID();
@@ -126,7 +214,7 @@ wss.on('connection', (ws, req) => {
           ws.authedUser = record.username;
           challenges.delete(challengeId);
           console.log(`login success for ${record.username}`);
-          return safeSend(ws, { type: 'login-success', username: record.username });
+          return safeSend(ws, { type: 'login-success', username: record.username, server_version: SERVER_VERSION });
         }
         case 'join': {
           if (!ws.authedUser) return safeSend(ws, { type: 'error', message: 'unauthenticated' });
@@ -151,6 +239,60 @@ wss.on('connection', (ws, req) => {
               safeSend(peer, { type: 'peer-joined', session_id: sessionId, username: ws.authedUser });
             }
           }
+          forwardToRelays({ type: 'peer-joined', session_id: sessionId, username: ws.authedUser });
+          return;
+        }
+        case 'relay-hello': {
+          const { relay_id: relayId, relay_url: relayUrl } = payload;
+          ws.isRelay = true;
+          trackRelay(relayId, relayUrl, ws);
+          console.log(`relay hello from ${relayId} ${relayUrl || ''}`);
+          // Share our directory list.
+          const urls = new Set();
+          if (RELAY_URL) urls.add(RELAY_URL);
+          for (const url of knownRelayUrls.keys()) urls.add(url);
+          safeSend(ws, { type: 'relay-list', relays: [...urls] });
+          return;
+        }
+        case 'relay-list': {
+          if (!ws.isRelay) return;
+          const { relays: list } = payload;
+          if (Array.isArray(list)) {
+            for (const url of list) {
+              rememberRelayUrl(url);
+            }
+          }
+          return;
+        }
+        case 'relay-forward': {
+          if (!ws.isRelay) return;
+          const { msg_id: msgId, origin, payload: inner } = payload;
+          if (origin === RELAY_ID) return;
+          if (markSeen(msgId)) return;
+          if (!inner || !inner.type) return;
+          // Deliver to local clients if applicable.
+          if (inner.session_id) {
+            const peers = sessions.get(inner.session_id);
+            if (peers) {
+              for (const peer of peers) {
+                if (peer.readyState === WebSocket.OPEN) {
+                  safeSend(peer, inner);
+                }
+              }
+            }
+          }
+          // Forward to other relays (except origin).
+          const forward = {
+            type: 'relay-forward',
+            msg_id: msgId,
+            origin,
+            payload: inner,
+          };
+          for (const relay of relays.values()) {
+            if (relay.ws && relay.ws.readyState === WebSocket.OPEN && relay.ws !== ws && relay.id !== origin) {
+              safeSend(relay.ws, forward);
+            }
+          }
           return;
         }
         case 'announce':
@@ -167,6 +309,7 @@ wss.on('connection', (ws, req) => {
               safeSend(peer, payload);
             }
           }
+          forwardToRelays(payload);
           return;
         }
         default:
@@ -179,6 +322,14 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
+    if (ws.isRelay) {
+      for (const [relayId, relay] of relays.entries()) {
+        if (relay.ws === ws) {
+          relays.delete(relayId);
+          break;
+        }
+      }
+    }
     // Remove pending challenge.
     if (ws.challengeId && challenges.has(ws.challengeId)) {
       challenges.delete(ws.challengeId);
@@ -196,6 +347,7 @@ wss.on('connection', (ws, req) => {
           safeSend(peer, notice);
         }
       }
+      forwardToRelays(notice);
       if (peers.size === 0) sessions.delete(sessionId);
     }
   });
@@ -212,6 +364,86 @@ const interval = setInterval(() => {
 
 wss.on('close', () => clearInterval(interval));
 
+// Prune seen message ids to avoid unbounded memory.
+setInterval(() => {
+  const now = Date.now();
+  for (const [msgId, ts] of seenMessages.entries()) {
+    if (now - ts > 60000) seenMessages.delete(msgId);
+  }
+}, 30000);
+
 server.listen(PORT, () => {
   console.log(`relay listening on :${PORT} (health at ${HEALTH_PATH})`);
 });
+
+// Connect to peers and discover others.
+const connectToRelay = (url) => {
+  if (!url || url === RELAY_URL) return;
+  if ([...relays.values()].some((r) => r.url === url)) return;
+
+  const ws = new WebSocket(url);
+  ws.on('open', () => {
+    ws.isRelay = true;
+    safeSend(ws, { type: 'relay-hello', relay_id: RELAY_ID, relay_url: RELAY_URL });
+  });
+  ws.on('message', (raw) => {
+    let msg;
+    try {
+      msg = JSON.parse(raw.toString());
+    } catch {
+      return;
+    }
+    if (msg.type === 'relay-hello') {
+      const { relay_id: relayId, relay_url: relayUrl } = msg;
+      trackRelay(relayId, relayUrl, ws);
+      return;
+    }
+    if (msg.type === 'relay-list' && Array.isArray(msg.relays)) {
+      for (const relayUrl of msg.relays) {
+        rememberRelayUrl(relayUrl);
+      }
+      return;
+    }
+      if (msg.type === 'relay-forward') {
+        const { msg_id: msgId, origin, payload } = msg;
+        if (origin === RELAY_ID) return;
+        if (markSeen(msgId)) return;
+        if (!payload || !payload.type) return;
+        if (payload.session_id) {
+          const peers = sessions.get(payload.session_id);
+          if (peers) {
+          for (const peer of peers) {
+            if (peer.readyState === WebSocket.OPEN) {
+              safeSend(peer, payload);
+            }
+          }
+        }
+      }
+      for (const relay of relays.values()) {
+        if (relay.ws && relay.ws.readyState === WebSocket.OPEN && relay.ws !== ws && relay.id !== origin) {
+          safeSend(relay.ws, msg);
+        }
+      }
+      return;
+    }
+  });
+  ws.on('close', () => {
+    for (const [relayId, relay] of relays.entries()) {
+      if (relay.ws === ws) relays.delete(relayId);
+    }
+  });
+  ws.on('error', () => {});
+};
+
+// Seed connections on boot.
+for (const peer of RELAY_PEERS) {
+  connectToRelay(peer);
+  rememberRelayUrl(peer);
+}
+
+// Periodically try to connect to discovered relays.
+setInterval(() => {
+  for (const url of knownRelayUrls.keys()) {
+    connectToRelay(url);
+  }
+}, 15000);

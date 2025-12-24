@@ -10,6 +10,7 @@ const WebSocket = require('ws');
 const openpgp = require('openpgp');
 
 const protocolVersion = 'v1';
+const clientVersion = '1.0.0';
 const PROMPT = '╰─> ';
 const INPUT_DIVIDER = '────────────────────────────────────────';
 const color = {
@@ -30,6 +31,15 @@ const err = (text) => paint(color.red, text);
 
 const args = parseArgs(process.argv.slice(2));
 const autoGenerate = args.generate === true || args.gen === true;
+const defaultRelayList = 'https://raw.githubusercontent.com/Lndr2501/KREO-Relays/refs/heads/main/relays.json';
+const relayListUrls = (process.env.KREO_RELAYS_URL || defaultRelayList)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+const seedList = (process.env.KREO_SEEDS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 let serverUrl = args.server;
 let sessionId = args.session;
@@ -49,11 +59,12 @@ let groupKey = null;
 let messageCounter = 0;
 let noncePrefix = crypto.randomBytes(4);
 
-// senderId -> { publicKey: KeyObject, epoch: number, nickname?: string }
+// senderId -> { publicKey: KeyObject, publicDer: Buffer, epoch: number, nickname?: string }
 let peers = new Map();
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 let ws = null;
 let shutdownRequested = false;
+let reconnectAttempts = 0;
 
 bootstrap().catch((e) => {
   console.error(err('fatal error'), e.message);
@@ -62,7 +73,13 @@ bootstrap().catch((e) => {
 
 async function bootstrap() {
   if (!serverUrl) {
-    serverUrl = await promptWithDefault(label('server'), 'ws://localhost:6969', false);
+    const discovered = await discoverServerFromList();
+    if (discovered) {
+      serverUrl = discovered;
+      printLine(`${label('discovery')} picked ${val(serverUrl)}`);
+    } else {
+      serverUrl = await promptWithDefault(label('server'), 'ws://localhost:6969', false);
+    }
   }
   serverUrl = normalizeServer(serverUrl);
   if (!username) {
@@ -115,12 +132,13 @@ function connect() {
   ws = new WebSocket(serverUrl);
 
   ws.on('open', async () => {
+    reconnectAttempts = 0;
     printLine(`${label('connected')} ${val(serverUrl)}, user ${val(username)}, session ${val(sessionId)}`);
     // Optional register before login.
     if (registerKeyArmored) {
       safeSend({ type: 'register', username, key_id: publicKeyId, public_key: registerKeyArmored });
     } else {
-      safeSend({ type: 'login-init', username, key_id: publicKeyId });
+      safeSend({ type: 'login-init', username, key_id: publicKeyId, client_version: clientVersion });
     }
   });
 
@@ -137,7 +155,7 @@ function connect() {
   ws.on('close', () => {
     printLine(warn('disconnected from relay'));
     if (shutdownRequested) process.exit(0);
-    holdForExit();
+    scheduleReconnect();
   });
 
   ws.on('error', (e) => {
@@ -155,7 +173,12 @@ function connect() {
       renderPrompt();
       return;
     }
-    sendEncrypted(line.trim());
+    const trimmed = line.trim();
+    if (!trimmed) {
+      renderPrompt();
+      return;
+    }
+    sendEncrypted(trimmed);
     renderPrompt();
   });
 
@@ -171,7 +194,7 @@ async function handleMessage(msg) {
   switch (msg.type) {
     case 'register-ok':
       printLine(val(`public key registered for ${msg.username}`));
-      safeSend({ type: 'login-init', username, key_id: publicKeyId });
+      safeSend({ type: 'login-init', username, key_id: publicKeyId, client_version: clientVersion });
       break;
     case 'error':
       printLine(err(msg.message || 'server error'));
@@ -182,6 +205,9 @@ async function handleMessage(msg) {
     case 'login-success':
       authed = true;
       printLine(val(`login success for ${msg.username}`));
+      if (msg.server_version && msg.server_version !== clientVersion) {
+        printLine(warn(`server version ${msg.server_version} differs from client ${clientVersion}`));
+      }
       safeSend({ type: 'join', session_id: sessionId });
       break;
     case 'joined':
@@ -329,7 +355,12 @@ function handleAnnounce(msg) {
     sendAnnounce('epoch-ahead');
   }
 
-  peers.set(peerId, { publicKey: peerKeyObj, epoch: peerEpoch, nickname: sanitizeNick(peerNick) });
+  peers.set(peerId, {
+    publicKey: peerKeyObj,
+    publicDer,
+    epoch: peerEpoch,
+    nickname: sanitizeNick(peerNick),
+  });
   deriveGroupKey();
 }
 
@@ -339,18 +370,19 @@ function handlePeerLeft() {
 }
 
 function deriveGroupKey() {
-  const activePeers = [...peers.values()].filter((p) => p.epoch === currentEpoch);
+  const activePeers = [...peers.entries()]
+    .filter(([, peer]) => peer.epoch === currentEpoch);
   if (activePeers.length === 0) return;
 
-  const secrets = activePeers.map((peer) => crypto.diffieHellman({
-    privateKey: identity.privateKey,
-    publicKey: peer.publicKey,
-  }));
-  secrets.sort(Buffer.compare);
+  // Deterministic group key: bind to all participant public keys + optional passphrase.
+  const participants = [
+    { id: identity.senderId, publicDer: identity.publicDer },
+    ...activePeers.map(([id, peer]) => ({ id, publicDer: peer.publicDer })),
+  ].sort((a, b) => a.id.localeCompare(b.id));
 
-  const inputMaterial = Buffer.concat(secrets);
+  const inputMaterial = Buffer.concat(participants.map((p) => p.publicDer));
   const salt = crypto.createHash('sha256')
-    .update(`${sessionId}|${passphrase}`)
+    .update(`${sessionId}|${passphrase}|${currentEpoch}`)
     .digest();
   const info = Buffer.concat([Buffer.from('group-key'), Buffer.from(sessionId)]);
   groupKey = Buffer.from(crypto.hkdfSync('sha256', salt, inputMaterial, info, 32));
@@ -441,6 +473,22 @@ function safeSend(obj) {
   }
 }
 
+function scheduleReconnect() {
+  reconnectAttempts += 1;
+  const delay = Math.min(15000, 1000 * reconnectAttempts);
+  printLine(muted(`reconnecting in ${Math.floor(delay / 1000)}s...`));
+  setTimeout(async () => {
+    try {
+      const discovered = await discoverServerFromList();
+      if (discovered) serverUrl = discovered;
+      connect();
+    } catch (e) {
+      printLine(err(`reconnect failed: ${e.message}`));
+      scheduleReconnect();
+    }
+  }, delay);
+}
+
 function renderChatUi() {
   const pad = (text = '') => `│ ${text}`;
   const header = `╭──────────────── chat ${val(sessionId)} ────────────────`;
@@ -478,4 +526,52 @@ function normalizeServer(url) {
   if (!url) return url;
   if (url.startsWith('ws://') || url.startsWith('wss://')) return url;
   return `ws://${url}`;
+}
+
+function toHttp(url) {
+  if (url.startsWith('wss://')) return `https://${url.slice('wss://'.length)}`;
+  if (url.startsWith('ws://')) return `http://${url.slice('ws://'.length)}`;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `http://${url}`;
+}
+
+async function discoverServer(seeds) {
+  for (const seed of seeds) {
+    try {
+      const base = toHttp(seed);
+      const res = await fetch(`${base}/directory`, { method: 'GET' });
+      if (!res.ok) continue;
+      const json = await res.json();
+      const relays = Array.isArray(json.relays) ? json.relays : [];
+      const options = relays.length > 0 ? relays : [seed];
+      return options[Math.floor(Math.random() * options.length)];
+    } catch {
+      continue;
+    }
+  }
+  // Fallback to first seed if all failed.
+  return seeds[0];
+}
+
+async function discoverServerFromList() {
+  // Prefer relay list URL(s), fallback to seeds.
+  if (relayListUrls.length > 0) {
+    for (const url of relayListUrls) {
+      try {
+        const res = await fetch(url, { method: 'GET' });
+        if (!res.ok) continue;
+        const json = await res.json();
+        const relays = Array.isArray(json.relays) ? json.relays : [];
+        if (relays.length > 0) {
+          return relays[Math.floor(Math.random() * relays.length)];
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+  if (seedList.length > 0) {
+    return discoverServer(seedList);
+  }
+  return '';
 }

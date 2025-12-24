@@ -14,7 +14,11 @@ Requirements: Docker (for relay) and a PGP keypair (private key stays local).
 1) Build and run relay (port 6969):
    ```bash
    docker build -t kreo-relay .
-   docker run -p 6969:6969 --name kreo-relay --rm kreo-relay
+   docker run -p 6969:6969 --name kreo-relay --rm \
+     -e PORT=6969 \
+     -e RELAY_URL=ws://your-public-host:6969 \
+     -e RELAY_PEERS=ws://seed1:6969,ws://seed2:6969 \
+     kreo-relay
    # health: curl http://localhost:6969/health
    # logs:   docker logs -f kreo-relay
    ```
@@ -56,8 +60,19 @@ Requirements: Docker (for relay) and a PGP keypair (private key stays local).
 - WAN-Freigabe (Port-Forwarding) Beispiele:
   - FritzBox: Internet → Freigaben → Gerät wählen → Portfreigabe hinzufügen → Protokoll TCP → Port extern 6969 auf intern 6969 des Hosts mit dem Relay.
   - pfSense: Firewall → NAT → Port Forward → Interface WAN, Proto TCP, Dest Port 6969, Redirect auf interne IP:6969, Haken bei „Filter rule association“ setzen, anschließend Rules anwenden.
+- Verteilte Relays (kein Single-Point):
+  - Setze `RELAY_URL` auf die öffentliche WS-URL deines Relays.
+  - Setze `RELAY_PEERS` auf bekannte Seeds/Peers (kommagetrennt). Relays tauschen dann ihre Relay-Liste.
+  - Clients können per `KREO_SEEDS` automatisch einen Online-Relay finden (random).
+  - Alternativ: `KREO_RELAYS_URL` auf eine JSON-Liste setzen (GitHub). Beispiel:
+    - Repo-Name: `KREO-Relays`
+    - Datei: `relays.json` mit Inhalt `{"relays":["wss://relay1.example.com","wss://relay2.example.com"]}`
+    - Client: `KREO_RELAYS_URL=https://raw.githubusercontent.com/<org>/KREO-Relays/main/relays.json`
+  - Ohne Seeds gibt es keine Discovery – mindestens ein Seed ist nötig (ähnlich wie Tor).
+  - Failover: Clients müssen bei Relay-Ausfall neu verbinden und die PGP-Challenge erneut lösen.
 
 ## Dev
 - Relay: `server.js`
 - Client: `client.js` (built to `client.exe` via `pkg client.js --targets node18-win-x64 --output client.exe`)
 - Default server in client prompts: `ws://localhost:6969`
+- Discovery (Client): `KREO_SEEDS=ws://seed1:6969,ws://seed2:6969`
