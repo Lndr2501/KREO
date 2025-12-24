@@ -45,11 +45,12 @@ RELAY_SAMPLE_SIZE="3"
 
 mkdir -p "${REPO_DIR}"
 
-if [[ ! -d "${REPO_DIR}" ]]; then
-  git clone "${REPO_URL}" "${REPO_DIR}"
-else
+if [[ -d "${REPO_DIR}/.git" ]]; then
   echo "Repo folder exists, pulling latest..."
   git -C "${REPO_DIR}" pull
+else
+  rm -rf "${REPO_DIR}"
+  git clone "${REPO_URL}" "${REPO_DIR}"
 fi
 
 echo "Building relay image..."
