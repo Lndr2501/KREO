@@ -5,14 +5,29 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const http = require('http');
+const https = require('https');
 const readline = require('readline');
 const WebSocket = require('ws');
 const openpgp = require('openpgp');
 
 const protocolVersion = 'v1';
 const clientVersion = '1.0.0';
-const PROMPT = '╰─> ';
-const INPUT_DIVIDER = '────────────────────────────────────────';
+const PROMPT = '> ';
+const INPUT_DIVIDER = '==============================';
+const BANNER = [
+  ' /$$   /$$       /$$$$$$$        /$$$$$$$$        /$$$$$$ ',
+  '| $$  /$$/      | $$__  $$      | $$_____/       /$$__  $$',
+  '| $$ /$$/       | $$  \\ $$      | $$            | $$  \\ $$',
+  '| $$$$$/        | $$$$$$$/      | $$$$$         | $$  | $$',
+  '| $$  $$        | $$__  $$      | $$__/         | $$  | $$',
+  '| $$\\  $$       | $$  \\ $$      | $$            | $$  | $$',
+  '| $$ \\  $$      | $$  | $$      | $$$$$$$$      |  $$$$$$/',
+  '|__/  \\__/      |__/  |__/      |________/       \\______/ ',
+  '                                                          ',
+  '                                                          ',
+  '                                                          ',
+];
 const color = {
   reset: '\x1b[0m',
   cyan: '\x1b[36m',
@@ -21,6 +36,7 @@ const color = {
   red: '\x1b[31m',
   gray: '\x1b[90m',
   magenta: '\x1b[35m',
+  blue: '\x1b[34m',
 };
 const paint = (code, text) => `${code}${text}${color.reset}`;
 const label = (text) => paint(color.cyan, text);
@@ -65,6 +81,12 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 let ws = null;
 let shutdownRequested = false;
 let reconnectAttempts = 0;
+let entryRelay = '';
+let connectedRelay = '';
+let uiActive = false;
+let headerLines = [];
+const logBuffer = [];
+const MAX_LOG_LINES = 200;
 
 bootstrap().catch((e) => {
   console.error(err('fatal error'), e.message);
@@ -72,6 +94,9 @@ bootstrap().catch((e) => {
 });
 
 async function bootstrap() {
+  for (const line of BANNER) {
+    printLine(paint(color.blue, line));
+  }
   if (!serverUrl) {
     const discovered = await discoverServerFromList();
     if (discovered) {
@@ -133,6 +158,8 @@ function connect() {
 
   ws.on('open', async () => {
     reconnectAttempts = 0;
+    connectedRelay = serverUrl;
+    if (!entryRelay) entryRelay = serverUrl;
     printLine(`${label('connected')} ${val(serverUrl)}, user ${val(username)}, session ${val(sessionId)}`);
     // Optional register before login.
     if (registerKeyArmored) {
@@ -179,6 +206,8 @@ function connect() {
       return;
     }
     sendEncrypted(trimmed);
+    const selfLabel = nickname ? `${identity.senderId}|${nickname}` : identity.senderId;
+    printLine(`${paint(color.magenta, selfLabel)} ${trimmed}`);
     renderPrompt();
   });
 
@@ -491,35 +520,48 @@ function scheduleReconnect() {
 
 function renderChatUi() {
   const pad = (text = '') => `│ ${text}`;
-  const header = `╭──────────────── chat ${val(sessionId)} ────────────────`;
-  printLine(header);
-  printLine(pad(`user: ${username}  nick: ${nickname || username}`));
-  printLine(pad(`server: ${serverUrl}`));
-  printLine(pad('type to send; CTRL+C to exit'));
-  printLine(INPUT_DIVIDER);
+  const statusLine = `user ${val(username)} | relay ${val(connectedRelay || serverUrl)} | entry ${val(entryRelay || serverUrl)} | reconnects ${val(reconnectAttempts)}`;
+  headerLines = [
+    `╭─ ${statusLine}`,
+    pad(`user: ${username}  nick: ${nickname || username}`),
+    pad(`server: ${serverUrl}`),
+    pad('type to send; CTRL+C to exit'),
+  ];
+  uiActive = true;
   rl.setPrompt(PROMPT);
-  renderPrompt();
+  redrawScreen();
 }
 
 function printLine(text) {
-  const line = rl.line || '';
-  const cursor = rl.cursor || 0;
-  readline.clearLine(process.stdout, 0);
-  readline.cursorTo(process.stdout, 0);
-  process.stdout.write(`${text}\n`);
-  if (joined) {
-    renderPrompt(line, cursor);
+  logBuffer.push(text);
+  if (logBuffer.length > MAX_LOG_LINES) {
+    logBuffer.splice(0, logBuffer.length - MAX_LOG_LINES);
   }
+  if (!uiActive) {
+    console.log(text);
+    return;
+  }
+  redrawScreen();
 }
 
 function renderPrompt(line = rl.line || '', cursor = rl.cursor || 0) {
-  readline.clearLine(process.stdout, 0);
-  readline.cursorTo(process.stdout, 0);
+  if (!uiActive) return;
+  redrawScreen(line, cursor);
+}
+
+function redrawScreen(line = rl.line || '', cursor = rl.cursor || 0) {
+  const rows = process.stdout.rows || 30;
+  const available = Math.max(0, rows - headerLines.length - 2);
+  const start = Math.max(0, logBuffer.length - available);
+  const view = logBuffer.slice(start);
+  const clear = '\x1b[2J\x1b[H';
+  process.stdout.write(clear);
+  for (const h of headerLines) process.stdout.write(`${h}\n`);
+  for (const l of view) process.stdout.write(`${l}\n`);
   process.stdout.write(`${INPUT_DIVIDER}\n${PROMPT}`);
   rl.line = line;
   rl.cursor = cursor;
-  rl.prompt(true);
-  rl.write('');
+  rl.write(line);
   readline.cursorTo(process.stdout, PROMPT.length + cursor);
 }
 function normalizeServer(url) {
@@ -539,12 +581,12 @@ async function discoverServer(seeds) {
   for (const seed of seeds) {
     try {
       const base = toHttp(seed);
-      const res = await fetch(`${base}/directory`, { method: 'GET' });
-      if (!res.ok) continue;
-      const json = await res.json();
+      const json = await fetchJson(`${base}/directory`);
       const relays = Array.isArray(json.relays) ? json.relays : [];
       const options = relays.length > 0 ? relays : [seed];
-      return options[Math.floor(Math.random() * options.length)];
+      const { picked, onlineCount } = await pickReachableRelay(options);
+      printLine(`${label('discovery')} relays ${val(options.length)} | online ${val(onlineCount)}`);
+      if (picked) return picked;
     } catch {
       continue;
     }
@@ -558,12 +600,12 @@ async function discoverServerFromList() {
   if (relayListUrls.length > 0) {
     for (const url of relayListUrls) {
       try {
-        const res = await fetch(url, { method: 'GET' });
-        if (!res.ok) continue;
-        const json = await res.json();
+        const json = await fetchJson(url);
         const relays = Array.isArray(json.relays) ? json.relays : [];
         if (relays.length > 0) {
-          return relays[Math.floor(Math.random() * relays.length)];
+          const { picked, onlineCount } = await pickReachableRelay(relays);
+          printLine(`${label('discovery')} relays ${val(relays.length)} | online ${val(onlineCount)}`);
+          if (picked) return picked;
         }
       } catch {
         continue;
@@ -574,4 +616,50 @@ async function discoverServerFromList() {
     return discoverServer(seedList);
   }
   return '';
+}
+
+function fetchJson(url) {
+  return new Promise((resolve, reject) => {
+    const lib = url.startsWith('https://') ? https : http;
+    const req = lib.get(url, { headers: { 'User-Agent': 'kreo-client' } }, (res) => {
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        res.resume();
+        return reject(new Error(`HTTP ${res.statusCode}`));
+      }
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(8000, () => req.destroy(new Error('timeout')));
+  });
+}
+
+async function pickReachableRelay(relays) {
+  const shuffled = [...new Set(relays)].sort(() => Math.random() - 0.5);
+  let onlineCount = 0;
+  let picked = '';
+  for (const relay of shuffled) {
+    const url = normalizeServer(relay);
+    const httpBase = toHttp(url);
+    try {
+      const health = await fetchJson(`${httpBase}/health`);
+      if (health && health.status === 'ok') {
+        onlineCount += 1;
+      }
+    } catch {
+      continue;
+    }
+    if (!picked && onlineCount > 0) {
+      picked = url;
+    }
+  }
+  return { picked, onlineCount };
 }

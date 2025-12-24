@@ -43,6 +43,7 @@ const server = http.createServer((req, res) => {
       relay_id: RELAY_ID,
       relay_url: RELAY_URL,
       known_relays: knownRelayUrls.size + (RELAY_URL ? 1 : 0),
+      connected_relays: relays.size,
     }));
     return;
   }
