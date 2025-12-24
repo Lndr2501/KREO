@@ -37,7 +37,8 @@ DEFAULT_HOST_PATTERN="kreo{N}.domain"
 read -r -p "Host pattern (use {N}) [${DEFAULT_HOST_PATTERN}]: " HOST_PATTERN
 HOST_PATTERN="${HOST_PATTERN:-$DEFAULT_HOST_PATTERN}"
 
-TARGET_DIR="."
+BASE_DIR="${KREO_BASE_DIR:-$(pwd)}"
+TARGET_DIR="${BASE_DIR}"
 REPO_URL="https://github.com/Lndr2501/KREO.git"
 REPO_DIR="${TARGET_DIR}/_repo"
 RELAY_SEEDS_URL="https://raw.githubusercontent.com/Lndr2501/KREO-Relays/refs/heads/main/relays.json"
