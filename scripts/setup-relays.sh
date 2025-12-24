@@ -37,6 +37,9 @@ DEFAULT_HOST_PATTERN="kreo{N}.domain"
 read -r -p "Host pattern (use {N}) [${DEFAULT_HOST_PATTERN}]: " HOST_PATTERN
 HOST_PATTERN="${HOST_PATTERN:-$DEFAULT_HOST_PATTERN}"
 
+read -r -p "Append port to RELAY_URL? (y/N): " ADD_PORT
+ADD_PORT="${ADD_PORT:-N}"
+
 BASE_DIR="${KREO_BASE_DIR:-$(pwd)}"
 TARGET_DIR="${BASE_DIR}"
 REPO_URL="https://github.com/Lndr2501/KREO.git"
@@ -66,6 +69,10 @@ EOF
 for i in $(seq 1 "${RELAY_COUNT}"); do
   PORT=$((START_PORT + i - 1))
   PUBLIC_HOST="${HOST_PATTERN/\{N\}/${i}}"
+  RELAY_URL="ws://${PUBLIC_HOST}"
+  if [[ "${ADD_PORT}" =~ ^[Yy]$ ]]; then
+    RELAY_URL="${RELAY_URL}:${PORT}"
+  fi
   cat >> "${COMPOSE_FILE}" <<EOF
   kreo-relay-${i}:
     image: kreo-relay
@@ -74,7 +81,7 @@ for i in $(seq 1 "${RELAY_COUNT}"); do
       - "${PORT}:6969"
     environment:
       - PORT=6969
-      - RELAY_URL=ws://${PUBLIC_HOST}:${PORT}
+      - RELAY_URL=${RELAY_URL}
       - RELAY_SEEDS_URL=${RELAY_SEEDS_URL}
       - RELAY_SAMPLE_SIZE=${RELAY_SAMPLE_SIZE}
 EOF
