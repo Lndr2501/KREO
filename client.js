@@ -12,7 +12,7 @@ const WebSocket = require('ws');
 const openpgp = require('openpgp');
 
 const protocolVersion = 'v1';
-const clientVersion = '1.0.0';
+const clientVersion = '1.1.0';
 const PROMPT = '> ';
 const INPUT_DIVIDER = '==============================';
 const BANNER = [

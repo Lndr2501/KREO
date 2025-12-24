@@ -10,7 +10,7 @@ const openpgp = require('openpgp');
 
 const PORT = process.env.PORT || 6969;
 const HEALTH_PATH = '/health';
-const SERVER_VERSION = '1.0.0';
+const SERVER_VERSION = '1.1.0';
 const MIN_CLIENT_VERSION = process.env.MIN_CLIENT_VERSION || '';
 const DEBUG_FRAMES = process.env.DEBUG_FRAMES === '1' || process.env.DEBUG_FRAMES === 'true';
 const DEBUG_CIPHERTEXT = process.env.DEBUG_CIPHERTEXT === '1' || process.env.DEBUG_CIPHERTEXT === 'true';
