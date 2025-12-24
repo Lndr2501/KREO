@@ -1,0 +1,6 @@
+- Discovery & Mesh: Relays nutzen die GitHub-Relay-Liste, verbinden sich zufällig (Sample Size), Auto-Failover, deduplizieren Nachrichten.
+- PGP-Login: Client/Server-Versionen werden ausgetauscht; Server kann alte Clients per MIN_CLIENT_VERSION ablehnen.
+- Client-UX: Sticky Header (Relay/Entry/Reconnects), Slash-Commands (/relay /session /who /rekey /safety /version /showencrypted /help), Auto-Reconnect, Dedupe nach Reconnect.
+- Sicherheit/Debug: Optionales Ciphertext-Logging (DEBUG_FRAMES, DEBUG_CIPHERTEXT), Safety Code bleibt im Client sichtbar; Server sieht keinen Klartext.
+- Setup: Wizard-Script (Port-Range, Host-Pattern, Port optional an RELAY_URL), One-Liner im README.
+- Version: 1.1.0; neue client.exe gebaut.

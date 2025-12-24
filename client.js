@@ -94,6 +94,8 @@ let handlersBound = false;
 let showEncrypted = false;
 let lastServerVersion = '';
 let lastSafetyCode = '';
+let currentInput = '';
+let currentCursor = 0;
 
 bootstrap().catch((e) => {
   console.error(err('fatal error'), e.message);
@@ -206,6 +208,8 @@ function bindHandlers() {
   handlersBound = true;
 
   rl.on('line', (line) => {
+    currentInput = '';
+    currentCursor = 0;
     if (!authed || !joined) {
       printLine(warn('not logged in / joined yet'));
       renderPrompt();
@@ -371,6 +375,7 @@ function startRekey(reason, targetEpoch) {
   currentEpoch = nextEpoch;
   groupKey = null;
   peers = new Map();
+  seenCipher.clear();
   identity = generateIdentity();
   noncePrefix = crypto.randomBytes(4);
   messageCounter = 0;
@@ -616,6 +621,8 @@ function scheduleReconnect() {
   }, delay);
 }
 
+// switchSession removed (no /session go)
+
 function renderChatUi() {
   updateHeader();
   uiActive = true;
@@ -625,9 +632,10 @@ function renderChatUi() {
 
 function updateHeader() {
   const pad = (text = '') => `│ ${text}`;
-  const statusLine = `user ${val(username)} | relay ${val(connectedRelay || serverUrl)} | entry ${val(entryRelay || serverUrl)} | reconnects ${val(totalReconnects)}`;
+  const statusLine = `user ${val(username)} | relay ${val(connectedRelay || serverUrl)} | entry ${val(entryRelay || serverUrl)} | session ${val(sessionId || '-')}`;
   headerLines = [
     `╭─ ${statusLine}`,
+    pad(`epoch: ${currentEpoch} | reconnects: ${totalReconnects}`),
     pad(`user: ${username}  nick: ${nickname || username}`),
     pad(`server: ${serverUrl}`),
     pad('type to send; CTRL+C to exit'),
@@ -644,7 +652,9 @@ function printLine(text) {
     console.log(text);
     return;
   }
-  redrawScreen();
+  const line = rl.line || '';
+  const cursor = rl.cursor || 0;
+  redrawScreen(line, cursor);
 }
 
 function renderPrompt(line = rl.line || '', cursor = rl.cursor || 0) {
@@ -653,6 +663,11 @@ function renderPrompt(line = rl.line || '', cursor = rl.cursor || 0) {
 }
 
 function redrawScreen(line = rl.line || '', cursor = rl.cursor || 0) {
+  // Capture current input if not provided.
+  if (arguments.length === 0) {
+    line = rl.line || '';
+    cursor = rl.cursor || 0;
+  }
   const rows = process.stdout.rows || 30;
   const available = Math.max(0, rows - headerLines.length - 2);
   const start = Math.max(0, logBuffer.length - available);
@@ -664,7 +679,8 @@ function redrawScreen(line = rl.line || '', cursor = rl.cursor || 0) {
   process.stdout.write(`${INPUT_DIVIDER}\n${PROMPT}`);
   rl.line = line;
   rl.cursor = cursor;
-  rl.write(line);
+  rl.write('');
+  if (line) rl.write(line);
   readline.cursorTo(process.stdout, PROMPT.length + cursor);
 }
 function normalizeServer(url) {
