@@ -17,6 +17,8 @@ const RELAY_PEERS = (process.env.RELAY_PEERS || '')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
+const RELAY_SEEDS_URL = process.env.RELAY_SEEDS_URL || '';
+const RELAY_SAMPLE_SIZE = Number.parseInt(process.env.RELAY_SAMPLE_SIZE || '3', 10);
 const RELAY_ID = crypto.randomUUID();
 
 // username -> { keyId, publicKeyArmored, publicKeyObj }
@@ -435,11 +437,41 @@ const connectToRelay = (url) => {
   ws.on('error', () => {});
 };
 
+const fetchRelayList = async () => {
+  if (!RELAY_SEEDS_URL) return [];
+  try {
+    const res = await fetch(RELAY_SEEDS_URL);
+    if (!res.ok) return [];
+    const json = await res.json();
+    return Array.isArray(json.relays) ? json.relays : [];
+  } catch {
+    return [];
+  }
+};
+
+const pickRandom = (list, count) => {
+  const copy = [...list];
+  const out = [];
+  while (copy.length > 0 && out.length < count) {
+    const idx = Math.floor(Math.random() * copy.length);
+    out.push(copy.splice(idx, 1)[0]);
+  }
+  return out;
+};
+
+const refreshRelayPeers = async () => {
+  const list = await fetchRelayList();
+  for (const url of list) rememberRelayUrl(url);
+  const targets = pickRandom(list, RELAY_SAMPLE_SIZE);
+  for (const url of targets) connectToRelay(url);
+};
+
 // Seed connections on boot.
 for (const peer of RELAY_PEERS) {
   connectToRelay(peer);
   rememberRelayUrl(peer);
 }
+refreshRelayPeers();
 
 // Periodically try to connect to discovered relays.
 setInterval(() => {
@@ -447,3 +479,8 @@ setInterval(() => {
     connectToRelay(url);
   }
 }, 15000);
+
+// Periodically resample peers from relay list (keeps mesh sparse).
+setInterval(() => {
+  refreshRelayPeers();
+}, 60000);

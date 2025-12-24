@@ -62,7 +62,9 @@ Requirements: Docker (for relay) and a PGP keypair (private key stays local).
   - pfSense: Firewall → NAT → Port Forward → Interface WAN, Proto TCP, Dest Port 6969, Redirect auf interne IP:6969, Haken bei „Filter rule association“ setzen, anschließend Rules anwenden.
 - Verteilte Relays (kein Single-Point):
   - Setze `RELAY_URL` auf die öffentliche WS-URL deines Relays.
-  - Setze `RELAY_PEERS` auf bekannte Seeds/Peers (kommagetrennt). Relays tauschen dann ihre Relay-Liste.
+  - Setze `RELAY_SEEDS_URL` auf die GitHub-Relay-Liste (z. B. `https://raw.githubusercontent.com/Lndr2501/KREO-Relays/refs/heads/main/relays.json`).
+  - Optional: `RELAY_SAMPLE_SIZE=3` (wie viele zufällige Relays pro Minute verbunden werden).
+  - `RELAY_PEERS` bleibt möglich für manuelle Peers, ist aber nicht nötig.
   - Clients können per `KREO_SEEDS` automatisch einen Online-Relay finden (random).
   - Alternativ: `KREO_RELAYS_URL` auf eine JSON-Liste setzen (GitHub). Beispiel:
     - Repo-Name: `KREO-Relays`
