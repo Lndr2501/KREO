@@ -49,6 +49,8 @@ const TLS_ENABLED = Boolean(TLS_KEY_PATH && TLS_CERT_PATH);
 const TLS_INSECURE_SELF_SIGNED = process.env.TLS_INSECURE_SELF_SIGNED === '1' || process.env.TLS_INSECURE_SELF_SIGNED === 'true';
 const WS_INSECURE_SKIP_VERIFY = process.env.WS_INSECURE_SKIP_VERIFY === '1' || process.env.WS_INSECURE_SKIP_VERIFY === 'true';
 const RELAY_DISABLE_SEEDS = process.env.RELAY_DISABLE_SEEDS === '1' || process.env.RELAY_DISABLE_SEEDS === 'true';
+const RELAY_BACKOFF_BASE_MS = parsePositiveInt(process.env.RELAY_BACKOFF_BASE_MS, 15000);
+const RELAY_BACKOFF_MAX_MS = parsePositiveInt(process.env.RELAY_BACKOFF_MAX_MS, 5 * 60 * 1000);
 const MAX_PAYLOAD_BYTES = parsePositiveInt(process.env.MAX_PAYLOAD_BYTES, 51200);
 const MAX_CONNECTIONS_PER_IP = parsePositiveInt(process.env.MAX_CONNECTIONS_PER_IP, 200);
 
@@ -62,6 +64,8 @@ const sessions = new Map();
 const relays = new Map();
 // url -> lastSeen
 const knownRelayUrls = new Map();
+// url -> { attempts, nextRetry }
+const relayFailures = new Map();
 // msgId -> timestamp (for loop prevention)
 const seenMessages = new Map();
 // ip -> { windowStart, counts: Map<bucket, count> }
@@ -210,6 +214,26 @@ const trackRelay = (relayId, url, ws) => {
 const rememberRelayUrl = (url) => {
   if (!url || url === RELAY_URL) return;
   knownRelayUrls.set(url, Date.now());
+};
+
+const markRelayFailure = (url) => {
+  if (!url) return;
+  const current = relayFailures.get(url) || { attempts: 0, nextRetry: Date.now() };
+  const attempts = current.attempts + 1;
+  const backoff = Math.min(RELAY_BACKOFF_MAX_MS, RELAY_BACKOFF_BASE_MS * (2 ** (attempts - 1)));
+  relayFailures.set(url, { attempts, nextRetry: Date.now() + backoff });
+};
+
+const clearRelayFailure = (url) => {
+  if (!url) return;
+  relayFailures.delete(url);
+};
+
+const canRetryRelay = (url) => {
+  if (!url) return false;
+  const entry = relayFailures.get(url);
+  if (!entry) return true;
+  return Date.now() >= entry.nextRetry;
 };
 
 const markSeen = (msgId) => {
@@ -589,6 +613,7 @@ server.listen(PORT, () => {
 const connectToRelay = (url) => {
   if (!url || url === RELAY_URL) return;
   if ([...relays.values()].some((r) => r.url === url)) return;
+  if (!canRetryRelay(url)) return;
   const options = {
     perMessageDeflate: false,
     maxPayload: MAX_PAYLOAD_BYTES,
@@ -599,6 +624,7 @@ const connectToRelay = (url) => {
   const ws = new WebSocket(url, options);
   ws.on('open', () => {
     ws.isRelay = true;
+    clearRelayFailure(url);
     safeSend(ws, { type: 'relay-hello', relay_id: RELAY_ID, relay_url: RELAY_URL, auth: signRelayHello(RELAY_ID) });
   });
   ws.on('message', (raw) => {
@@ -651,9 +677,11 @@ const connectToRelay = (url) => {
     for (const [relayId, relay] of relays.entries()) {
       if (relay.ws === ws) relays.delete(relayId);
     }
+    markRelayFailure(url);
   });
   ws.on('error', (err) => {
     console.warn(`relay connection error ${url}: ${err.message}`);
+    markRelayFailure(url);
   });
 };
 
