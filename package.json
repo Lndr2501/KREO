@@ -5,7 +5,10 @@
   "main": "server.js",
   "scripts": {
     "server": "node server.js",
-    "client": "node client.js"
+    "client": "node client.js",
+    "test": "jest --runInBand",
+    "dev-client": "node dev-client.js",
+    "build-dev-client": "pkg dev-client.js --targets node18-win-x64 --output dist/dev-client.exe"
   },
   "keywords": [],
   "author": "",
@@ -14,5 +17,9 @@
   "dependencies": {
     "openpgp": "^6.3.0",
     "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "pkg": "^5.8.1"
   }
 }

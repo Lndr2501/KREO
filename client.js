@@ -631,14 +631,16 @@ function renderChatUi() {
 }
 
 function updateHeader() {
-  const pad = (text = '') => `│ ${text}`;
+  const pad = (text = '') => `| ${text}`;
   const statusLine = `user ${val(username)} | relay ${val(connectedRelay || serverUrl)} | entry ${val(entryRelay || serverUrl)} | session ${val(sessionId || '-')}`;
   headerLines = [
-    `╭─ ${statusLine}`,
+    `+--------------------------------------------------`,
+    pad(statusLine),
     pad(`epoch: ${currentEpoch} | reconnects: ${totalReconnects}`),
     pad(`user: ${username}  nick: ${nickname || username}`),
     pad(`server: ${serverUrl}`),
     pad('type to send; CTRL+C to exit'),
+    `+--------------------------------------------------`,
   ];
   if (uiActive) redrawScreen();
 }
