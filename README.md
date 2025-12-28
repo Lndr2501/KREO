@@ -96,3 +96,6 @@ Fragt nur Port-Range, Anzahl, Host-Pattern (kreo{N}.domain) und ob Port in RELAY
   - Generiert automatisch PGP-Key + X25519-Identitaet, registriert, beantwortet Challenge, joint Session. Du tippst Nachrichten interaktiv ins Terminal (random Login, keine Kleopatra noetig).
 - Optional: `--min_participants 2` sendet erst, wenn mindestens 2 Teilnehmer (inkl. dir) bekannt sind.
 - Build als EXE (Windows, Node18): `npm run build-dev-client` legt `dist/dev-client.exe` an (nutzt pkg).
+
+## Tipps zur Verbindung
+- Eigener Relay: Beim Client-Start kannst du nun direkt eine URL eingeben; leer lassen nutzt Discovery. Alternativ `KREO_SERVER=ws://<dein-host>:6969` oder Flag `--server`.

@@ -57,7 +57,8 @@ const seedList = (process.env.KREO_SEEDS || '')
   .map((s) => s.trim())
   .filter(Boolean);
 
-let serverUrl = args.server;
+const envServer = process.env.KREO_SERVER || '';
+let serverUrl = args.server || envServer;
 let sessionId = args.session;
 let passphrase = args.passphrase || '';
 let nickname = sanitizeNick(args.nick || args.nickname || '');
@@ -107,12 +108,17 @@ async function bootstrap() {
     printLine(paint(color.blue, line));
   }
   if (!serverUrl) {
-    const discovered = await discoverServerFromList();
-    if (discovered) {
-      serverUrl = discovered;
-      printLine(`${label('discovery')} picked ${val(serverUrl)}`);
+    const manual = await promptWithDefault(label('server (enter to use discovery)'), '', false);
+    if (manual) {
+      serverUrl = manual;
     } else {
-      serverUrl = await promptWithDefault(label('server'), 'ws://localhost:6969', false);
+      const discovered = await discoverServerFromList();
+      if (discovered) {
+        serverUrl = discovered;
+        printLine(`${label('discovery')} picked ${val(serverUrl)}`);
+      } else {
+        serverUrl = await promptWithDefault(label('server'), 'ws://localhost:6969', false);
+      }
     }
   }
   serverUrl = normalizeServer(serverUrl);

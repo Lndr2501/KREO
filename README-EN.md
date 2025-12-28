@@ -96,3 +96,6 @@ Prompts for port range, count, host pattern (kreo{N}.domain), optional port in R
   - Auto-generates PGP + X25519, registers, answers challenge, joins session. You type messages interactively (random login, no Kleopatra).
 - Optional: `--min_participants 2` waits until at least 2 participants (including you) are known before sending.
 - Build EXE (Windows, Node18): `npm run build-dev-client` outputs `dist/dev-client.exe` (uses pkg).
+
+## Connection Tips
+- Custom relay: At client startup you can now enter a URL; leaving it empty will use discovery. Or set `KREO_SERVER=ws://<your-host>:6969` or pass `--server`.
