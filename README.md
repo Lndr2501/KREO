@@ -77,7 +77,7 @@ Fragt nur Port-Range, Anzahl, Host-Pattern (kreo{N}.domain) und ob Port in RELAY
 - Rate Limits: `RATE_LIMIT_WINDOW_MS` (default 60000), `RATE_LIMIT_REGISTER` (default 20), `RATE_LIMIT_LOGIN_INIT` (default 60) pro IP/Window.
 - Relay-Auth: `RELAY_SHARED_SECRET` (optional HMAC) erzwingt gegenseitige Authentifizierung zwischen Relays.
 - Verbindung/Transport-Schutz: `MAX_PAYLOAD_BYTES` (default 51200) begrenzt WebSocket-Frames; `MAX_CONNECTIONS_PER_IP` (default 200) begrenzt parallele Verbindungen pro IP.
-- TLS/WSS optional: `TLS_KEY_PATH` + `TLS_CERT_PATH` (und optional `TLS_CA_PATH`) aktivieren TLS; dann `RELAY_URL` auf `wss://...` setzen.
+- TLS/WSS optional: `TLS_KEY_PATH` + `TLS_CERT_PATH` (und optional `TLS_CA_PATH`) aktivieren TLS; `RELAY_URL` auf `wss://...` setzen. Fuer lokale Tests ohne Zertifikat: `TLS_INSECURE_SELF_SIGNED=1` erzeugt ein temporäres selbstsigniertes Zertifikat (nicht fuer Produktion).
 
 ## Notes
 - Unofficial, unaudited, fun-only. RAM-only state; Registrierungen/Sessions gehen beim Neustart verloren.

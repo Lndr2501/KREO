@@ -16,6 +16,7 @@
   "type": "commonjs",
   "dependencies": {
     "openpgp": "^6.3.0",
+    "selfsigned": "^2.1.1",
     "ws": "^8.18.3"
   },
   "devDependencies": {

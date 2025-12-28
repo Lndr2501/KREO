@@ -9,6 +9,7 @@ const https = require('https');
 const crypto = require('crypto');
 const WebSocket = require('ws');
 const openpgp = require('openpgp');
+const selfsigned = require('selfsigned');
 
 const PORT = process.env.PORT || 6969;
 const HEALTH_PATH = '/health';
@@ -45,6 +46,7 @@ const TLS_KEY_PATH = process.env.TLS_KEY_PATH || '';
 const TLS_CERT_PATH = process.env.TLS_CERT_PATH || '';
 const TLS_CA_PATH = process.env.TLS_CA_PATH || '';
 const TLS_ENABLED = Boolean(TLS_KEY_PATH && TLS_CERT_PATH);
+const TLS_INSECURE_SELF_SIGNED = process.env.TLS_INSECURE_SELF_SIGNED === '1' || process.env.TLS_INSECURE_SELF_SIGNED === 'true';
 const MAX_PAYLOAD_BYTES = parsePositiveInt(process.env.MAX_PAYLOAD_BYTES, 51200);
 const MAX_CONNECTIONS_PER_IP = parsePositiveInt(process.env.MAX_CONNECTIONS_PER_IP, 200);
 
@@ -93,13 +95,20 @@ const requestHandler = (req, res) => {
 };
 
 let server;
-if (TLS_ENABLED) {
-  const options = {
-    key: fs.readFileSync(TLS_KEY_PATH),
-    cert: fs.readFileSync(TLS_CERT_PATH),
-  };
-  if (TLS_CA_PATH) {
-    options.ca = fs.readFileSync(TLS_CA_PATH);
+if (TLS_ENABLED || TLS_INSECURE_SELF_SIGNED) {
+  let options;
+  if (TLS_ENABLED) {
+    options = {
+      key: fs.readFileSync(TLS_KEY_PATH),
+      cert: fs.readFileSync(TLS_CERT_PATH),
+    };
+    if (TLS_CA_PATH) {
+      options.ca = fs.readFileSync(TLS_CA_PATH);
+    }
+  } else if (TLS_INSECURE_SELF_SIGNED) {
+    const cert = selfsigned.generate([{ name: 'commonName', value: 'localhost' }], { days: 365, keySize: 2048 });
+    options = { key: cert.private, cert: cert.cert, ca: cert.public };
+    console.warn('TLS self-signed mode enabled (TLS_INSECURE_SELF_SIGNED). Use for local testing only.');
   }
   server = https.createServer(options, requestHandler);
   console.log('TLS enabled (wss).');

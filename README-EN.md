@@ -77,7 +77,7 @@ Prompts for port range, count, host pattern (kreo{N}.domain), optional port in R
 - Rate limits: `RATE_LIMIT_WINDOW_MS` (default 60000), `RATE_LIMIT_REGISTER` (default 20), `RATE_LIMIT_LOGIN_INIT` (default 60) per IP/window.
 - Relay auth: `RELAY_SHARED_SECRET` (optional HMAC) enforces mutual auth between relays.
 - Transport guards: `MAX_PAYLOAD_BYTES` (default 51200) caps WebSocket frames; `MAX_CONNECTIONS_PER_IP` (default 200) caps concurrent connections per IP.
-- Optional TLS/WSS: `TLS_KEY_PATH` + `TLS_CERT_PATH` (+ optional `TLS_CA_PATH`); set `RELAY_URL` to `wss://...`.
+- Optional TLS/WSS: `TLS_KEY_PATH` + `TLS_CERT_PATH` (+ optional `TLS_CA_PATH`); set `RELAY_URL` to `wss://...`. For local tests without certs: `TLS_INSECURE_SELF_SIGNED=1` generates a temporary self-signed cert (not for production).
 
 ## Notes
 - Unofficial, unaudited, fun-only. RAM-only state; registrations/sessions lost on restart.
