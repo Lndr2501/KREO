@@ -6,3 +6,5 @@ npm-debug.log*
 Thumbs.db
 client.exe
 certs/
+dist/
+node_modules/.package-lock.json
