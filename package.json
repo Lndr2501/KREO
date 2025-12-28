@@ -8,7 +8,8 @@
     "client": "node client.js",
     "test": "jest --runInBand",
     "dev-client": "node dev-client.js",
-    "build-dev-client": "pkg dev-client.js --targets node18-win-x64 --output dist/dev-client.exe"
+    "build-dev-client": "pkg dev-client.js --targets node18-win-x64 --output dist/dev-client.exe",
+    "build-client": "pkg client.js --targets node18-win-x64 --output dist/client.exe"
   },
   "keywords": [],
   "author": "",
