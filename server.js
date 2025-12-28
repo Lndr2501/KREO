@@ -681,6 +681,12 @@ const pickRandom = (list, count) => {
 
 const refreshRelayPeers = async () => {
   const list = await fetchRelayList();
+  // Replace discovery-sourced relays to drop stale entries.
+  knownRelayUrls.clear();
+  if (RELAY_URL) knownRelayUrls.set(RELAY_URL, Date.now());
+  for (const peer of RELAY_PEERS) {
+    rememberRelayUrl(peer);
+  }
   for (const url of list) rememberRelayUrl(url);
   const targets = pickRandom(list, RELAY_SAMPLE_SIZE);
   for (const url of targets) connectToRelay(url);
