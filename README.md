@@ -52,7 +52,7 @@ Fragt nur Port-Range, Anzahl, Host-Pattern (kreo{N}.domain) und ob Port in RELAY
 - Auto-Reconnect bei Relay-Ausfall (erneute PGP-Challenge noetig).
 - Slash Commands:
   - /relay (aktueller + entry relay)
-  - /session (Session, Epoch)
+  - /session (Session anzeigen; mit Parameter oder `gen` Session wechseln/neu setzen)
   - /who (Peers aktuelle Epoch)
   - /rekey (manuell)
   - /safety (Safety Code)

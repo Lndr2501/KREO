@@ -52,7 +52,7 @@ Prompts for port range, count, host pattern (kreo{N}.domain), optional port in R
 - Auto-reconnect on relay loss (fresh PGP challenge).
 - Slash commands:
   - /relay (current + entry relay)
-  - /session (session, epoch)
+  - /session (show session; with parameter or `gen` switch/set session)
   - /who (peers current epoch)
   - /rekey (manual)
   - /safety (safety code)

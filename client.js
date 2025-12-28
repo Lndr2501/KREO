@@ -539,7 +539,19 @@ function handleCommand(input) {
     return;
   }
   if (cmd === '/session') {
-    printLine(muted(`session ${sessionId || '-'} | epoch ${currentEpoch}`));
+    const newSession = parts[1];
+    if (!newSession) {
+      printLine(muted(`session ${sessionId || '-'} | epoch ${currentEpoch}`));
+      return;
+    }
+    const target = newSession.toLowerCase() === 'gen' ? generateSessionId() : newSession;
+    sessionId = target;
+    joined = false;
+    peers.clear();
+    groupKey = null;
+    printLine(muted(`switching to session ${sessionId}`));
+    safeSend({ type: 'join', session_id: sessionId });
+    startRekey('session-switch');
     return;
   }
   if (cmd === '/who') {
