@@ -81,6 +81,7 @@ Prompts for port range, count, host pattern (kreo{N}.domain), optional port in R
 - Seeds/Discovery toggles: `RELAY_DISABLE_SEEDS=1` disables fetching the seed list; `WS_INSECURE_SKIP_VERIFY=1` allows self-signed/invalid certs when peering relays (debug only).
 - Relay discovery replaces the known list on each fetch, so stale seed entries get dropped.
 - Log throttling: `RELAY_ERROR_SUPPRESS_MS` (default 60000) suppresses identical relay connection errors and emits periodic summaries.
+- Peer lists: `RELAY_ACCEPT_PEER_LIST=0` ignores relay-list frames from peers (uses only your seeds/peers).
 
 ## Notes
 - Unofficial, unaudited, fun-only. RAM-only state; registrations/sessions lost on restart.

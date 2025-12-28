@@ -50,6 +50,7 @@ const TLS_INSECURE_SELF_SIGNED = process.env.TLS_INSECURE_SELF_SIGNED === '1' ||
 const WS_INSECURE_SKIP_VERIFY = process.env.WS_INSECURE_SKIP_VERIFY === '1' || process.env.WS_INSECURE_SKIP_VERIFY === 'true';
 const RELAY_DISABLE_SEEDS = process.env.RELAY_DISABLE_SEEDS === '1' || process.env.RELAY_DISABLE_SEEDS === 'true';
 const RELAY_ERROR_SUPPRESS_MS = parsePositiveInt(process.env.RELAY_ERROR_SUPPRESS_MS, 60000);
+const RELAY_ACCEPT_PEER_LIST = !(process.env.RELAY_ACCEPT_PEER_LIST === '0' || process.env.RELAY_ACCEPT_PEER_LIST === 'false');
 const MAX_PAYLOAD_BYTES = parsePositiveInt(process.env.MAX_PAYLOAD_BYTES, 51200);
 const MAX_CONNECTIONS_PER_IP = parsePositiveInt(process.env.MAX_CONNECTIONS_PER_IP, 200);
 
@@ -656,6 +657,7 @@ const connectToRelay = (url) => {
       return;
     }
     if (msg.type === 'relay-list' && Array.isArray(msg.relays)) {
+      if (!RELAY_ACCEPT_PEER_LIST) return;
       for (const relayUrl of msg.relays) {
         rememberRelayUrl(relayUrl);
       }

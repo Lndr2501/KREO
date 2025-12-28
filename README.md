@@ -80,6 +80,7 @@ Fragt nur Port-Range, Anzahl, Host-Pattern (kreo{N}.domain) und ob Port in RELAY
 - TLS/WSS optional: `TLS_KEY_PATH` + `TLS_CERT_PATH` (und optional `TLS_CA_PATH`) aktivieren TLS; `RELAY_URL` auf `wss://...` setzen. Fuer lokale Tests ohne Zertifikat: `TLS_INSECURE_SELF_SIGNED=1` erzeugt ein temporäres selbstsigniertes Zertifikat (nicht fuer Produktion).
 - Seeds/Discovery toggles: `RELAY_DISABLE_SEEDS=1` deaktiviert den Abruf der Seed-Liste; `WS_INSECURE_SKIP_VERIFY=1` akzeptiert self-signed/ungültige Zertifikate beim Relay-Peering (nur zum Debuggen!).
 - Log-Dämpfung: `RELAY_ERROR_SUPPRESS_MS` (default 60000) unterdrueckt identische Relay-Verbindungsfehler und gibt periodisch Summaries aus.
+- Peer-Listen: `RELAY_ACCEPT_PEER_LIST=0` ignoriert von Relays gesendete relay-list Frames (nur eigene Seeds/Peers werden genutzt).
 - Relay-Discovery aktualisiert die bekannte Liste komplett bei jedem Fetch, sodass alte Einträge aus der Seed-Liste verworfen werden.
 
 ## Notes
