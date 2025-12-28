@@ -2,14 +2,16 @@
   "name": "kreo",
   "version": "1.1.0",
   "description": "CLI-only, E2E encrypted group chat with a dumb WebSocket relay.",
-  "main": "server.js",
+  "main": "electron-main.js",
   "scripts": {
     "server": "node server.js",
     "client": "node client.js",
     "test": "jest --runInBand",
     "dev-client": "node dev-client.js",
     "build-dev-client": "pkg dev-client.js --targets node18-win-x64 --output dist/dev-client.exe",
-    "build-client": "pkg client.js --targets node18-win-x64 --output dist/client.exe"
+    "build-client": "pkg client.js --targets node18-win-x64 --output dist/client.exe",
+    "electron:dev": "electron electron-main.js",
+    "electron:build": "electron-builder --win --x64"
   },
   "keywords": [],
   "author": "",
@@ -21,6 +23,8 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "electron": "^25.9.0",
+    "electron-builder": "^24.6.0",
     "jest": "^29.7.0",
     "pkg": "^5.8.1"
   }

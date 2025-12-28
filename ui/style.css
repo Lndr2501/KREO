@@ -1,0 +1,88 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  display: flex;
+  height: 100vh;
+  color: #111;
+}
+.sidebar {
+  width: 260px;
+  padding: 16px;
+  border-right: 1px solid #ddd;
+  background: #f8f9fa;
+}
+.sidebar h2 { margin-top: 0; }
+.sidebar label { display: block; margin: 8px 0 4px; font-weight: 600; }
+.sidebar input { width: 100%; padding: 8px; margin-bottom: 4px; }
+.sidebar input[type="file"] { width: 100%; margin-bottom: 6px; }
+.sidebar button { width: 100%; padding: 10px; margin-top: 8px; }
+.status { margin-top: 12px; font-size: 12px; color: #555; }
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal.hidden { display: none; }
+.modal-content {
+  background: #fff;
+  padding: 16px;
+  width: 520px;
+  max-width: 90vw;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+}
+.modal-content h3 { margin-top: 0; }
+.modal-content textarea {
+  width: 100%;
+  min-height: 140px;
+  margin-bottom: 8px;
+}
+.modal-content input { width: 100%; padding: 8px; margin-bottom: 12px; }
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.messages {
+  flex: 1;
+  padding: 12px;
+  overflow-y: auto;
+}
+.msg {
+  margin-bottom: 8px;
+}
+.msg .sender {
+  font-weight: 700;
+  margin-right: 6px;
+}
+.msg.self .sender { color: #0a7; }
+.msg.remote .sender { color: #07c; }
+.input-row {
+  display: flex;
+  border-top: 1px solid #ddd;
+}
+.input-row input {
+  flex: 1;
+  padding: 10px;
+  border: none;
+}
+.input-row button {
+  width: 120px;
+  border: none;
+  background: #0a7;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+.input-row button:hover { background: #09865f; }

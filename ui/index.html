@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>KREO Chat</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="sidebar">
+    <h2>KREO Chat</h2>
+    <label>Server</label>
+    <input id="server" placeholder="ws://localhost:6969" value="ws://localhost:6969" />
+    <label>Username</label>
+    <input id="username" placeholder="required" />
+    <label>Nickname</label>
+    <input id="nickname" placeholder="optional" />
+    <label>Session</label>
+    <input id="session" placeholder="required" />
+    <label>PGP Private Key File</label>
+    <input id="privkeyPath" type="file" accept=".asc,.pgp,.txt" />
+    <label>PGP Public Key File</label>
+    <input id="pubkeyPath" type="file" accept=".asc,.pgp,.txt" />
+    <button id="connect">Register + Login</button>
+    <div class="status" id="status">Disconnected</div>
+  </div>
+  <div class="main">
+    <div class="messages" id="messages"></div>
+    <div class="input-row">
+      <input id="message" placeholder="Type a message..." />
+      <button id="send">Send</button>
+    </div>
+  </div>
+
+  <div id="challengeModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>PGP Challenge</h3>
+      <label>Armored message (decrypt locally and paste the nonce)</label>
+      <textarea id="challengeArmored" readonly></textarea>
+      <label>Decrypted nonce</label>
+      <input id="challengeNonce" placeholder="paste nonce here" />
+      <div class="modal-actions">
+        <button id="challengeSubmit">Submit</button>
+        <button id="challengeCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>
