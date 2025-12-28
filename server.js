@@ -49,6 +49,7 @@ const TLS_ENABLED = Boolean(TLS_KEY_PATH && TLS_CERT_PATH);
 const TLS_INSECURE_SELF_SIGNED = process.env.TLS_INSECURE_SELF_SIGNED === '1' || process.env.TLS_INSECURE_SELF_SIGNED === 'true';
 const WS_INSECURE_SKIP_VERIFY = process.env.WS_INSECURE_SKIP_VERIFY === '1' || process.env.WS_INSECURE_SKIP_VERIFY === 'true';
 const RELAY_DISABLE_SEEDS = process.env.RELAY_DISABLE_SEEDS === '1' || process.env.RELAY_DISABLE_SEEDS === 'true';
+const RELAY_ERROR_SUPPRESS_MS = parsePositiveInt(process.env.RELAY_ERROR_SUPPRESS_MS, 60000);
 const MAX_PAYLOAD_BYTES = parsePositiveInt(process.env.MAX_PAYLOAD_BYTES, 51200);
 const MAX_CONNECTIONS_PER_IP = parsePositiveInt(process.env.MAX_CONNECTIONS_PER_IP, 200);
 
@@ -62,6 +63,8 @@ const sessions = new Map();
 const relays = new Map();
 // url -> lastSeen
 const knownRelayUrls = new Map();
+// url -> { last, lastTs, count }
+const relayErrorState = new Map();
 // msgId -> timestamp (for loop prevention)
 const seenMessages = new Map();
 // ip -> { windowStart, counts: Map<bucket, count> }
@@ -210,6 +213,29 @@ const trackRelay = (relayId, url, ws) => {
 const rememberRelayUrl = (url) => {
   if (!url || url === RELAY_URL) return;
   knownRelayUrls.set(url, Date.now());
+};
+
+const logRelayError = (url, message) => {
+  if (!RELAY_ERROR_SUPPRESS_MS) {
+    console.warn(`relay connection error ${url}: ${message}`);
+    return;
+  }
+  const now = Date.now();
+  const state = relayErrorState.get(url) || { last: '', lastTs: 0, count: 0 };
+  // If same message within window, increment and suppress.
+  if (state.last === message && now - state.lastTs < RELAY_ERROR_SUPPRESS_MS) {
+    state.count += 1;
+    relayErrorState.set(url, state);
+    return;
+  }
+  // Flush previous aggregated errors if any.
+  if (state.count > 1) {
+    console.warn(`relay connection error ${url}: ${state.last} (repeated ${state.count}x)`);
+  } else if (state.count === 1) {
+    console.warn(`relay connection error ${url}: ${state.last}`);
+  }
+  console.warn(`relay connection error ${url}: ${message}`);
+  relayErrorState.set(url, { last: message, lastTs: now, count: 1 });
 };
 
 const markSeen = (msgId) => {
@@ -580,6 +606,17 @@ setInterval(() => {
   enforceSeenLimit();
 }, 30000);
 
+// Periodically flush aggregated relay error logs so we see summaries.
+setInterval(() => {
+  const now = Date.now();
+  for (const [url, state] of relayErrorState.entries()) {
+    if (state.count > 1 && now - state.lastTs >= RELAY_ERROR_SUPPRESS_MS) {
+      console.warn(`relay connection error ${url}: ${state.last} (repeated ${state.count}x)`);
+      relayErrorState.delete(url);
+    }
+  }
+}, Math.max(10000, Math.min(RELAY_ERROR_SUPPRESS_MS, 60000)));
+
 server.listen(PORT, () => {
   const proto = TLS_ENABLED ? 'https/wss' : 'http/ws';
   console.log(`relay listening on ${proto} :${PORT} (health at ${HEALTH_PATH})`);
@@ -653,7 +690,7 @@ const connectToRelay = (url) => {
     }
   });
   ws.on('error', (err) => {
-    console.warn(`relay connection error ${url}: ${err.message}`);
+    logRelayError(url, err.message || 'unknown');
   });
 };
 
