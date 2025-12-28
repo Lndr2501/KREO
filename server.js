@@ -47,6 +47,8 @@ const TLS_CERT_PATH = process.env.TLS_CERT_PATH || '';
 const TLS_CA_PATH = process.env.TLS_CA_PATH || '';
 const TLS_ENABLED = Boolean(TLS_KEY_PATH && TLS_CERT_PATH);
 const TLS_INSECURE_SELF_SIGNED = process.env.TLS_INSECURE_SELF_SIGNED === '1' || process.env.TLS_INSECURE_SELF_SIGNED === 'true';
+const WS_INSECURE_SKIP_VERIFY = process.env.WS_INSECURE_SKIP_VERIFY === '1' || process.env.WS_INSECURE_SKIP_VERIFY === 'true';
+const RELAY_DISABLE_SEEDS = process.env.RELAY_DISABLE_SEEDS === '1' || process.env.RELAY_DISABLE_SEEDS === 'true';
 const MAX_PAYLOAD_BYTES = parsePositiveInt(process.env.MAX_PAYLOAD_BYTES, 51200);
 const MAX_CONNECTIONS_PER_IP = parsePositiveInt(process.env.MAX_CONNECTIONS_PER_IP, 200);
 
@@ -587,11 +589,14 @@ server.listen(PORT, () => {
 const connectToRelay = (url) => {
   if (!url || url === RELAY_URL) return;
   if ([...relays.values()].some((r) => r.url === url)) return;
-
-  const ws = new WebSocket(url, {
+  const options = {
     perMessageDeflate: false,
     maxPayload: MAX_PAYLOAD_BYTES,
-  });
+  };
+  if (WS_INSECURE_SKIP_VERIFY) {
+    options.rejectUnauthorized = false;
+  }
+  const ws = new WebSocket(url, options);
   ws.on('open', () => {
     ws.isRelay = true;
     safeSend(ws, { type: 'relay-hello', relay_id: RELAY_ID, relay_url: RELAY_URL, auth: signRelayHello(RELAY_ID) });
@@ -653,7 +658,7 @@ const connectToRelay = (url) => {
 };
 
 const fetchRelayList = async () => {
-  if (!RELAY_SEEDS_URL) return [];
+  if (!RELAY_SEEDS_URL || RELAY_DISABLE_SEEDS) return [];
   try {
     const res = await fetch(RELAY_SEEDS_URL);
     if (!res.ok) return [];
